@@ -1,0 +1,54 @@
+Setup iniziale
+[x] Configurazione Docker (Sail + Apache + PostgreSQL + Redis)
+[x] File Dockerfile Apache personalizzato
+[x] Configurazione Apache virtual host
+[x] File .dockerignore
+[x] Verificare che il Dockerfile si chiami Dockerfile (non DockerFile)
+[x] Aggiornare docker-compose.yml per usare Dockerfile personalizzato
+[ ] Testare avvio container: ./vendor/bin/sail up -d
+Configurazione Laravel
+[ ] Configurare PostgreSQL nel .env
+[ ] Configurare Redis nel .env
+[ ] Verificare che config/database.php supporti PostgreSQL
+[ ] Verificare che config/cache.php usi Redis
+[ ] Verificare che config/queue.php usi Redis
+Integrazione Fatture in Cloud - Step 1
+[ ] Installare PHP SDK Fatture in Cloud: composer require fattureincloud/api-sdk-php
+[ ] Creare config file: config/fattureincloud.php
+[ ] Creare Service Provider per FIC (opzionale, per dependency injection)
+[ ] Creare migration per tabella webhook_logs (salvare eventi ricevuti)
+[ ] Creare migration per tabella fic_accounts (per multi-tenant futuro)
+[ ] Creare Controller: WebhookController per gestire webhook
+[ ] Creare Route: POST /api/webhooks/fattureincloud (protetta)
+[ ] Implementare verifica subscription (GET con challenge)
+[ ] Implementare verifica JWT per notifiche POST
+[ ] Testare con account trial FIC
+Testing
+[ ] Test unitari per verifica webhook
+[ ] Test integrazione con FIC API (mock)
+[ ] Test end-to-end: creare entity in FIC → ricevere webhook
+5. Configurazioni aggiuntive
+A. Sicurezza
+Rate limiting per endpoint webhook
+Middleware per validazione IP (se FIC fornisce IP whitelist)
+Logging delle richieste webhook per audit
+Encryption delle credenziali in database (Laravel Encryption)
+B. Performance e scalabilità
+Queue jobs per processare webhook in background
+Cache per dati FIC (evitare troppe chiamate API)
+Database indexing su tabelle webhook
+Health check endpoint per monitoring
+C. Multi-tenancy (futuro)
+Package Laravel per multi-tenancy (es. stancl/tenancy)
+Isolamento dati per cliente
+Gestione credenziali multiple FIC
+D. Monitoring e debugging
+Logging strutturato (Monolog)
+Error tracking (Sentry opzionale)
+Dashboard per vedere webhook ricevuti
+Command Artisan per testare connessione FIC
+E. Sviluppo
+.env.example completo con tutte le variabili
+Docker compose per ambiente test
+Seeders per dati di test
+Postman collection per testare API
