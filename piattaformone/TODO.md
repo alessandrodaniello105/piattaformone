@@ -5,7 +5,7 @@ Setup iniziale
 [x] File .dockerignore
 [x] Verificare che il Dockerfile si chiami Dockerfile (non DockerFile)
 [x] Aggiornare docker-compose.yml per usare Dockerfile personalizzato
-[ ] Testare avvio container: ./vendor/bin/sail up -d
+[x] Testare avvio container: ./vendor/bin/sail up -d
 Configurazione Laravel
 [ ] Configurare PostgreSQL nel .env
 [ ] Configurare Redis nel .env
@@ -13,9 +13,10 @@ Configurazione Laravel
 [ ] Verificare che config/cache.php usi Redis
 [ ] Verificare che config/queue.php usi Redis
 Integrazione Fatture in Cloud - Step 1
-[ ] Installare PHP SDK Fatture in Cloud: composer require fattureincloud/api-sdk-php
-[ ] Creare config file: config/fattureincloud.php
-[ ] Creare Service Provider per FIC (opzionale, per dependency injection)
+[x] Installare PHP SDK Fatture in Cloud: composer require fattureincloud/api-sdk-php
+[x] Creare config file: config/fattureincloud.php
+[x] Creare Service Provider per FIC (opzionale, per dependency injection)
+[x] Configurare OAuth2 Authorization Code Flow (redirect, callback, token storage in Redis)
 [ ] Creare migration per tabella webhook_logs (salvare eventi ricevuti)
 [ ] Creare migration per tabella fic_accounts (per multi-tenant futuro)
 [ ] Creare Controller: WebhookController per gestire webhook
@@ -46,7 +47,7 @@ D. Monitoring e debugging
 Logging strutturato (Monolog)
 Error tracking (Sentry opzionale)
 Dashboard per vedere webhook ricevuti
-Command Artisan per testare connessione FIC
+[x] Command Artisan per testare connessione FIC (fic:test)
 E. Sviluppo
 .env.example completo con tutte le variabili
 Docker compose per ambiente test
