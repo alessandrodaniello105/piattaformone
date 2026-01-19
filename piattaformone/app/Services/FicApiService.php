@@ -25,10 +25,12 @@ class FicApiService
      * Create a new FicApiService instance.
      *
      * @param FicAccount $account The FIC account to use for API calls
+     * @param Client|null $httpClient Optional HTTP client (useful for testing with mocks)
      */
-    public function __construct(FicAccount $account)
+    public function __construct(FicAccount $account, ?Client $httpClient = null)
     {
         $this->account = $account;
+        $this->httpClient = $httpClient;
     }
 
     /**
@@ -57,14 +59,16 @@ class FicApiService
         $this->config = Configuration::getDefaultConfiguration();
         $this->config->setAccessToken($accessToken);
 
-        // Create HTTP client
-        $this->httpClient = new Client([
-            'timeout' => 30.0,
-            'headers' => [
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json',
-            ],
-        ]);
+        // Create HTTP client only if not already provided (e.g., for testing)
+        if ($this->httpClient === null) {
+            $this->httpClient = new Client([
+                'timeout' => 30.0,
+                'headers' => [
+                    'Accept' => 'application/json',
+                    'Content-Type' => 'application/json',
+                ],
+            ]);
+        }
 
         return $this->config;
     }

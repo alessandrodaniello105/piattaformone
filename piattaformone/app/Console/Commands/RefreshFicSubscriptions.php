@@ -100,7 +100,11 @@ class RefreshFicSubscriptions extends Command
                 $webhookUrl = $this->generateWebhookUrl($account->id, $subscription->event_group);
 
                 // Use FicApiService to renew the subscription
-                $service = new FicApiService($account);
+                // Use a method that can be overridden in tests
+                $service = $this->createFicApiService($account);
+                
+                // If service is a mock from container, use it directly
+                // Otherwise, it's a real instance and we proceed normally
                 $result = $service->createOrRenewSubscription($subscription->event_group, $webhookUrl);
 
                 // Update subscription with new data
@@ -173,5 +177,18 @@ class RefreshFicSubscriptions extends Command
     {
         $baseUrl = rtrim(config('app.url'), '/');
         return "{$baseUrl}/api/webhooks/fic/{$accountId}/{$eventGroup}";
+    }
+
+    /**
+     * Create a FicApiService instance.
+     * This method can be overridden in tests for mocking.
+     *
+     * @param \App\Models\FicAccount $account
+     * @param \GuzzleHttp\Client|null $httpClient Optional HTTP client for testing
+     * @return FicApiService
+     */
+    public function createFicApiService(\App\Models\FicAccount $account, ?\GuzzleHttp\Client $httpClient = null): FicApiService
+    {
+        return new FicApiService($account, $httpClient);
     }
 }

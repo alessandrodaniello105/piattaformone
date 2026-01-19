@@ -111,7 +111,7 @@ class TestFattureInCloudConnection extends Command
             $this->line('  To obtain an access token:');
             
             // Build the OAuth redirect URL with correct port
-            $appUrl = config('app.url', 'http://localhost:8080');
+            $appUrl = config('app.url', 'http://localhost');
             $oauthUrl = rtrim($appUrl, '/') . '/api/fic/oauth/redirect';
             $this->line('  1. Visit: ' . $oauthUrl);
             $this->line('  2. Authorize the application');

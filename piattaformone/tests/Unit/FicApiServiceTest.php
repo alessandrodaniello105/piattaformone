@@ -97,20 +97,15 @@ class FicApiServiceTest extends TestCase
 
         $mockResponse = new Response(200, [], json_encode($responseData));
 
-        $service = new FicApiService($account);
-        
-        // Use reflection to inject a mock HTTP client
-        $reflection = new \ReflectionClass($service);
-        $httpClientProperty = $reflection->getProperty('httpClient');
-        $httpClientProperty->setAccessible(true);
-        
+        // Create mock HTTP client
         $mockHttpClient = Mockery::mock(Client::class);
         $mockHttpClient->shouldReceive('request')
             ->once()
             ->with('POST', Mockery::pattern('/\/subscriptions$/'), Mockery::type('array'))
             ->andReturn($mockResponse);
         
-        $httpClientProperty->setValue($service, $mockHttpClient);
+        // Inject mock HTTP client via constructor
+        $service = new FicApiService($account, $mockHttpClient);
         
         // Initialize SDK to set config
         $service->initializeSdk();
@@ -153,19 +148,15 @@ class FicApiServiceTest extends TestCase
 
         $mockResponse = new Response(200, [], json_encode($responseData));
 
-        $service = new FicApiService($account);
-        
-        $reflection = new \ReflectionClass($service);
-        $httpClientProperty = $reflection->getProperty('httpClient');
-        $httpClientProperty->setAccessible(true);
-        
+        // Create mock HTTP client
         $mockHttpClient = Mockery::mock(Client::class);
         $mockHttpClient->shouldReceive('request')
             ->once()
             ->with('PUT', Mockery::pattern('/\/subscriptions\/sub_existing_456$/'), Mockery::type('array'))
             ->andReturn($mockResponse);
         
-        $httpClientProperty->setValue($service, $mockHttpClient);
+        // Inject mock HTTP client via constructor
+        $service = new FicApiService($account, $mockHttpClient);
         $service->initializeSdk();
 
         $result = $service->createOrRenewSubscription($eventGroup, $webhookUrl);
@@ -198,18 +189,14 @@ class FicApiServiceTest extends TestCase
             $mockResponse
         );
 
-        $service = new FicApiService($account);
-        
-        $reflection = new \ReflectionClass($service);
-        $httpClientProperty = $reflection->getProperty('httpClient');
-        $httpClientProperty->setAccessible(true);
-        
+        // Create mock HTTP client
         $mockHttpClient = Mockery::mock(Client::class);
         $mockHttpClient->shouldReceive('request')
             ->once()
             ->andThrow($clientException);
         
-        $httpClientProperty->setValue($service, $mockHttpClient);
+        // Inject mock HTTP client via constructor
+        $service = new FicApiService($account, $mockHttpClient);
         $service->initializeSdk();
 
         Log::shouldReceive('warning')
@@ -246,18 +233,14 @@ class FicApiServiceTest extends TestCase
             $mockResponse
         );
 
-        $service = new FicApiService($account);
-        
-        $reflection = new \ReflectionClass($service);
-        $httpClientProperty = $reflection->getProperty('httpClient');
-        $httpClientProperty->setAccessible(true);
-        
+        // Create mock HTTP client
         $mockHttpClient = Mockery::mock(Client::class);
         $mockHttpClient->shouldReceive('request')
             ->once()
             ->andThrow($clientException);
         
-        $httpClientProperty->setValue($service, $mockHttpClient);
+        // Inject mock HTTP client via constructor
+        $service = new FicApiService($account, $mockHttpClient);
         $service->initializeSdk();
 
         Log::shouldReceive('error')
@@ -298,18 +281,14 @@ class FicApiServiceTest extends TestCase
             $mockResponse
         );
 
-        $service = new FicApiService($account);
-        
-        $reflection = new \ReflectionClass($service);
-        $httpClientProperty = $reflection->getProperty('httpClient');
-        $httpClientProperty->setAccessible(true);
-        
+        // Create mock HTTP client
         $mockHttpClient = Mockery::mock(Client::class);
         $mockHttpClient->shouldReceive('request')
             ->once()
             ->andThrow($clientException);
         
-        $httpClientProperty->setValue($service, $mockHttpClient);
+        // Inject mock HTTP client via constructor
+        $service = new FicApiService($account, $mockHttpClient);
         $service->initializeSdk();
 
         Log::shouldReceive('error')
@@ -345,18 +324,14 @@ class FicApiServiceTest extends TestCase
             $mockResponse
         );
 
-        $service = new FicApiService($account);
-        
-        $reflection = new \ReflectionClass($service);
-        $httpClientProperty = $reflection->getProperty('httpClient');
-        $httpClientProperty->setAccessible(true);
-        
+        // Create mock HTTP client
         $mockHttpClient = Mockery::mock(Client::class);
         $mockHttpClient->shouldReceive('request')
             ->once()
             ->andThrow($serverException);
         
-        $httpClientProperty->setValue($service, $mockHttpClient);
+        // Inject mock HTTP client via constructor
+        $service = new FicApiService($account, $mockHttpClient);
         $service->initializeSdk();
 
         Log::shouldReceive('error')

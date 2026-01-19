@@ -111,8 +111,9 @@ class ListFicSubscriptions extends Command
             } elseif ($subscription->expires_at->isPast()) {
                 $status = 'Expired';
                 $statusColor = 'red';
-            } elseif ($subscription->expires_at->diffInDays($now) <= 15) {
-                $status = 'Expiring (' . $subscription->expires_at->diffInDays($now) . ' days)';
+            } elseif ($subscription->expires_at->diffInDays($now, false) <= 15) {
+                $daysUntil = max(0, (int) $subscription->expires_at->diffInDays($now, false));
+                $status = 'Expiring (' . $daysUntil . ' days)';
                 $statusColor = 'yellow';
             } else {
                 $status = 'Active';
@@ -120,7 +121,7 @@ class ListFicSubscriptions extends Command
             }
 
             $rows[] = [
-                $subscription->fic_account_id,
+                (string) $subscription->fic_account_id,
                 $accountName,
                 $subscription->fic_subscription_id,
                 $subscription->event_group,
