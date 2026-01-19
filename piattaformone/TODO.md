@@ -7,22 +7,22 @@ Setup iniziale
 [x] Aggiornare docker-compose.yml per usare Dockerfile personalizzato
 [x] Testare avvio container: ./vendor/bin/sail up -d
 Configurazione Laravel
-[ ] Configurare PostgreSQL nel .env
-[ ] Configurare Redis nel .env
-[ ] Verificare che config/database.php supporti PostgreSQL
-[ ] Verificare che config/cache.php usi Redis
-[ ] Verificare che config/queue.php usi Redis
+[X] Configurare PostgreSQL nel .env
+[X] Configurare Redis nel .env
+[X] Verificare che config/database.php supporti PostgreSQL
+[X] Verificare che config/cache.php usi Redis
+[X] Verificare che config/queue.php usi Redis
 Integrazione Fatture in Cloud - Step 1
 [x] Installare PHP SDK Fatture in Cloud: composer require fattureincloud/api-sdk-php
 [x] Creare config file: config/fattureincloud.php
 [x] Creare Service Provider per FIC (opzionale, per dependency injection)
 [x] Configurare OAuth2 Authorization Code Flow (redirect, callback, token storage in Redis)
-[ ] Creare migration per tabella webhook_logs (salvare eventi ricevuti)
-[ ] Creare migration per tabella fic_accounts (per multi-tenant futuro)
-[ ] Creare Controller: WebhookController per gestire webhook
-[ ] Creare Route: POST /api/webhooks/fattureincloud (protetta)
-[ ] Implementare verifica subscription (GET con challenge)
-[ ] Implementare verifica JWT per notifiche POST
+[x] Creare migration per tabella webhook_logs (salvare eventi ricevuti)
+[x] Creare migration per tabella fic_accounts (per multi-tenant futuro)
+[x] Creare Controller: WebhookController per gestire webhook
+[x] Creare Route: POST /api/webhooks/fattureincloud (protetta)
+[x] Implementare verifica subscription (GET con challenge)
+[x] Implementare verifica JWT per notifiche POST
 [ ] Testare con account trial FIC
 Testing
 [ ] Test unitari per verifica webhook

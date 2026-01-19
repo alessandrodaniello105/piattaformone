@@ -44,4 +44,32 @@ return [
     
     'access_token' => env('FIC_ACCESS_TOKEN'),
     'refresh_token' => env('FIC_REFRESH_TOKEN'),
+    
+    /*
+    |--------------------------------------------------------------------------
+    | Webhook Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configuration for Fatture in Cloud webhook verification.
+    |
+    */
+    
+    /*
+    | Webhook Public Key
+    |
+    | The public key (base64 encoded) provided by Fatture in Cloud
+    | for verifying JWT signatures in webhook notifications.
+    | You can find this in your Fatture in Cloud app settings.
+    |
+    */
+    'webhook_public_key' => env('FIC_WEBHOOK_PUBLIC_KEY'),
+    
+    /*
+    | Webhook URL
+    |
+    | The URL where Fatture in Cloud will send webhook notifications.
+    | This should match the URL configured in your FIC app settings.
+    |
+    */
+    'webhook_url' => env('FIC_WEBHOOK_URL', env('APP_URL') . '/api/webhooks/fattureincloud'),
 ];

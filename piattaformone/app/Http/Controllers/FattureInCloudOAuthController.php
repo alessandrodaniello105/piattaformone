@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\FicAccount;
+use FattureInCloud\Configuration;
 use FattureInCloud\OAuth2\OAuth2AuthorizationCode\OAuth2AuthorizationCodeManager;
 use FattureInCloud\OAuth2\Scope;
+use GuzzleHttp\Client;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -44,7 +47,8 @@ class FattureInCloudOAuthController extends Controller
         }
         
         // Define required scopes
-        // Adjust these scopes based on your needs
+        // For webhooks, we only need read scopes to get company info
+        // The webhook notifications come from FIC, not from API calls
         // See: https://developers.fattureincloud.it/docs/general-knowledge/oauth2/
         $scopes = [
             Scope::ENTITY_CLIENTS_READ,
@@ -196,9 +200,40 @@ class FattureInCloudOAuthController extends Controller
             Log::info('FIC OAuth: Tokens obtained successfully', [
                 'expires_in' => $expiresIn,
             ]);
-            
-            // TODO: Redirect to a success page or dashboard
-            return redirect('/')->with('success', 'Autorizzazione completata con successo!');
+
+            // Create or update FicAccount in database
+            try {
+                Log::info('FIC OAuth: Attempting to create/update account in database', [
+                    'has_access_token' => !empty($accessToken),
+                    'has_refresh_token' => !empty($refreshToken),
+                ]);
+
+                $account = $this->createOrUpdateFicAccount(
+                    $accessToken,
+                    $refreshToken,
+                    $expiresAt
+                );
+
+                Log::info('FIC OAuth: Account created/updated in database', [
+                    'account_id' => $account->id,
+                    'company_id' => $account->company_id,
+                    'company_name' => $account->company_name,
+                ]);
+
+                return redirect('/')->with('success', "Autorizzazione completata con successo! Account ID: {$account->id}");
+            } catch (\Exception $e) {
+                Log::error('FIC OAuth: Failed to create/update account in database', [
+                    'error' => $e->getMessage(),
+                    'error_class' => get_class($e),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+
+                // Still redirect with success since tokens are in Redis
+                // But show a warning message
+                return redirect('/')->with('warning', 'Autorizzazione completata, ma errore nel salvataggio account. Controlla i log. Errore: ' . $e->getMessage());
+            }
             
         } catch (\Exception $e) {
             Log::error('FIC OAuth callback error: ' . $e->getMessage(), [
@@ -365,5 +400,126 @@ class FattureInCloudOAuthController extends Controller
                 'message' => 'Errore durante il test della connessione: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Create or update FicAccount in database with OAuth tokens.
+     *
+     * Fetches company information from FIC API and creates/updates the account.
+     *
+     * @param string $accessToken
+     * @param string $refreshToken
+     * @param \Carbon\Carbon $expiresAt
+     * @return FicAccount
+     * @throws \Exception
+     */
+    private function createOrUpdateFicAccount(
+        string $accessToken,
+        string $refreshToken,
+        \Carbon\Carbon $expiresAt
+    ): FicAccount {
+        Log::debug('FIC OAuth: Starting createOrUpdateFicAccount');
+
+        // Initialize FIC SDK configuration
+        $config = Configuration::getDefaultConfiguration();
+        $config->setAccessToken($accessToken);
+
+        $httpClient = new Client([
+            'timeout' => 30.0,
+            'headers' => [
+                'Accept' => 'application/json',
+                'Content-Type' => 'application/json',
+            ],
+        ]);
+
+        // Get user companies to determine which company to use
+        Log::debug('FIC OAuth: Calling listUserCompanies API');
+        try {
+            $userApi = new \FattureInCloud\Api\UserApi($httpClient, $config);
+            $response = $userApi->listUserCompanies();
+            $companiesData = $response->getData();
+            $companies = $companiesData ? $companiesData->getCompanies() : [];
+
+            Log::debug('FIC OAuth: Received companies from API', [
+                'companies_count' => is_array($companies) ? count($companies) : (is_object($companies) ? 1 : 0),
+                'companies_type' => gettype($companies),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('FIC OAuth: Error calling listUserCompanies', [
+                'error' => $e->getMessage(),
+                'error_class' => get_class($e),
+            ]);
+            throw new \RuntimeException('Failed to fetch companies from FIC API: ' . $e->getMessage(), 0, $e);
+        }
+
+        if (empty($companies)) {
+            throw new \RuntimeException('No companies found for this user');
+        }
+
+        // Use the first company (or you could add logic to select a specific one)
+        $company = is_array($companies) ? $companies[0] : $companies;
+        $companyId = is_object($company) ? $company->getId() : $company['id'] ?? null;
+        $companyName = is_object($company) ? $company->getName() : $company['name'] ?? null;
+        
+        // Company email is not available in the Company object from listUserCompanies
+        // It can be retrieved later from company info if needed
+        $companyEmail = null;
+
+        Log::debug('FIC OAuth: Extracted company info', [
+            'company_id' => $companyId,
+            'company_name' => $companyName,
+            'company_type' => gettype($company),
+        ]);
+
+        if (!$companyId) {
+            throw new \RuntimeException('Company ID not found in API response');
+        }
+
+        // Find existing account by company_id or create new one
+        Log::debug('FIC OAuth: Looking for existing account or creating new one', [
+            'company_id' => $companyId,
+        ]);
+
+        $account = FicAccount::firstOrNew([
+            'company_id' => $companyId,
+        ]);
+
+        $isNew = !$account->exists;
+
+        // Update account with tokens and company info
+        $account->fill([
+            'access_token' => $accessToken,
+            'refresh_token' => $refreshToken,
+            'token_expires_at' => $expiresAt,
+            'token_refreshed_at' => now(),
+            'company_name' => $companyName,
+            'company_email' => $companyEmail,
+            'status' => 'active',
+            'connected_at' => $account->connected_at ?? now(),
+        ]);
+
+        // Set name if not already set
+        if (empty($account->name)) {
+            $account->name = $companyName ?? "Account {$companyId}";
+        }
+
+        Log::debug('FIC OAuth: Saving account to database', [
+            'is_new' => $isNew,
+            'account_data' => [
+                'company_id' => $account->company_id,
+                'company_name' => $account->company_name,
+                'name' => $account->name,
+                'has_access_token' => !empty($account->access_token),
+            ],
+        ]);
+
+        $account->save();
+
+        Log::info('FIC OAuth: Account saved successfully', [
+            'account_id' => $account->id,
+            'was_new' => $isNew,
+        ]);
+
+        return $account;
     }
 }
