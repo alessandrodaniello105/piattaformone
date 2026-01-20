@@ -1,45 +1,42 @@
 import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
 import vue from '@vitejs/plugin-vue';
-import tailwindcss from '@tailwindcss/vite';
-import { writeFileSync, watchFile, readFileSync } from 'fs';
-import { join } from 'path';
 
 // Plugin per correggere automaticamente il file hot
-const fixHotFilePlugin = () => {
-    return {
-        name: 'fix-hot-file',
-        configureServer(server) {
-            const hotFile = join(process.cwd(), 'public', 'hot');
-            const correctUrl = 'http://localhost:5174';
+// const fixHotFilePlugin = () => {
+//     return {
+//         name: 'fix-hot-file',
+//         configureServer(server) {
+//             const hotFile = join(process.cwd(), 'public', 'hot');
+//             const correctUrl = 'http://localhost:5174';
             
-            // Corregge il file quando viene modificato
-            watchFile(hotFile, { interval: 1000 }, (curr, prev) => {
-                try {
-                    const content = readFileSync(hotFile, 'utf-8').trim();
-                    if (content !== correctUrl && !content.includes('5174')) {
-                        writeFileSync(hotFile, correctUrl + '\n', 'utf-8');
-                        console.log(`[vite] Corretto public/hot: ${content} -> ${correctUrl}`);
-                    }
-                } catch (error) {
-                    // Ignora errori
-                }
-            });
+//             // Corregge il file quando viene modificato
+//             watchFile(hotFile, { interval: 1000 }, (curr, prev) => {
+//                 try {
+//                     const content = readFileSync(hotFile, 'utf-8').trim();
+//                     if (content !== correctUrl && !content.includes('5174')) {
+//                         writeFileSync(hotFile, correctUrl + '\n', 'utf-8');
+//                         console.log(`[vite] Corretto public/hot: ${content} -> ${correctUrl}`);
+//                     }
+//                 } catch (error) {
+//                     // Ignora errori
+//                 }
+//             });
             
-            // Corregge anche all'avvio
-            setTimeout(() => {
-                try {
-                    const content = readFileSync(hotFile, 'utf-8').trim();
-                    if (content !== correctUrl && !content.includes('5174')) {
-                        writeFileSync(hotFile, correctUrl + '\n', 'utf-8');
-                    }
-                } catch (error) {
-                    // Ignora errori
-                }
-            }, 2000);
-        },
-    };
-};
+//             // Corregge anche all'avvio
+//             setTimeout(() => {
+//                 try {
+//                     const content = readFileSync(hotFile, 'utf-8').trim();
+//                     if (content !== correctUrl && !content.includes('5174')) {
+//                         writeFileSync(hotFile, correctUrl + '\n', 'utf-8');
+//                     }
+//                 } catch (error) {
+//                     // Ignora errori
+//                 }
+//             }, 2000);
+//         },
+//     };
+// };
 
 export default defineConfig({
     plugins: [
@@ -49,15 +46,17 @@ export default defineConfig({
             detectTls: false, // Disabilita il rilevamento TLS
             buildDirectory: 'build',
             hotFile: 'public/hot',
+            ssr: {
+                
+            }
         }),
-        fixHotFilePlugin(),
+        // fixHotFilePlugin(),
         vue(),
-        tailwindcss(),
     ],
     server: {
         host: '0.0.0.0',
         port: 5174,
-        strictPort: false,
+        strictPort: true,
         hmr: {
             host: 'localhost',
             port: 5174,
@@ -67,6 +66,6 @@ export default defineConfig({
             ignored: ['**/storage/framework/views/**'],
         },
         cors: true,
-        origin: 'http://localhost:8080',
+        origin: 'http://localhost:5174',
     },
 });
