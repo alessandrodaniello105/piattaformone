@@ -1,6 +1,4 @@
 import './bootstrap';
-// CSS viene gestito separatamente da Laravel Vite come entry point
-// Non importarlo qui per evitare conflitti
 
 import { createApp, h } from 'vue';
 import { createInertiaApp } from '@inertiajs/vue3';
