@@ -61,8 +61,11 @@ return [
     | for verifying JWT signatures in webhook notifications.
     | You can find this in your Fatture in Cloud app settings.
     |
+    | Default public key from FIC documentation:
+    | LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFL1JvSElqZ1k3aGZYZlk1cC9KeStLL0ZndU1aNAozVHZaOXQ0ZU43K2t4UTBNSnpLdG93djRDY1lURnFyQm03aE1CNVpXS25xTHoyNEQ2bFFqU0wwWXN3PT0KLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==
+    |
     */
-    'webhook_public_key' => env('FIC_WEBHOOK_PUBLIC_KEY'),
+    'webhook_public_key' => env('FIC_WEBHOOK_PUBLIC_KEY', 'LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFL1JvSElqZ1k3aGZYZlk1cC9KeStLL0ZndU1aNAozVHZaOXQ0ZU43K2t4UTBNSnpLdG93djRDY1lURnFyQm03aE1CNVpXS25xTHoyNEQ2bFFqU0wwWXN3PT0KLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg=='),
     
     /*
     | Webhook URL
@@ -72,4 +75,14 @@ return [
     |
     */
     'webhook_url' => env('FIC_WEBHOOK_URL', env('APP_URL') . '/api/webhooks/fattureincloud'),
+    
+    /*
+    | Webhook JWT Verification
+    |
+    | Enable or disable JWT signature verification for webhook notifications.
+    | Set to false to disable verification during development/testing.
+    | Should be enabled in production for security.
+    |
+    */
+    'webhook_verify_jwt' => env('FIC_WEBHOOK_VERIFY_JWT', true),
 ];

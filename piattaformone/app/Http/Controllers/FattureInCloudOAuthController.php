@@ -53,6 +53,8 @@ class FattureInCloudOAuthController extends Controller
         $scopes = [
             Scope::ENTITY_CLIENTS_READ,
             Scope::ENTITY_SUPPLIERS_READ,
+            Scope::ISSUED_DOCUMENTS_QUOTES_READ, 
+            Scope::ISSUED_DOCUMENTS_INVOICES_READ,
         ];
         
         try {

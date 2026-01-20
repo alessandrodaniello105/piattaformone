@@ -174,4 +174,28 @@ class ProcessFicWebhookTest extends TestCase
         $this->assertEquals($payload, $job->payload);
         $this->assertEquals(1, $job->accountId);
     }
+
+    /**
+     * Test job handles CloudEvents clients.create event.
+     */
+    public function test_job_handles_cloudevents_clients_create(): void
+    {
+        $this->markTestSkipped('Requires FicAccount and API mocking - move to Feature test');
+    }
+
+    /**
+     * Test job handles CloudEvents quotes.create event.
+     */
+    public function test_job_handles_cloudevents_quotes_create(): void
+    {
+        $this->markTestSkipped('Requires FicAccount and API mocking - move to Feature test');
+    }
+
+    /**
+     * Test job handles CloudEvents invoices.create event.
+     */
+    public function test_job_handles_cloudevents_invoices_create(): void
+    {
+        $this->markTestSkipped('Requires FicAccount and API mocking - move to Feature test');
+    }
 }

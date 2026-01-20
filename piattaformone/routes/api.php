@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\FattureInCloudOAuthController;
+use App\Http\Controllers\FicSyncController;
 use App\Http\Controllers\FicWebhookController;
 use App\Http\Controllers\WebhookController;
 use Illuminate\Support\Facades\Route;
@@ -48,3 +49,13 @@ Route::match(['get', 'post'], '/webhooks/fic/{account_id}/{group}', [FicWebhookC
     ->where(['account_id' => '[0-9]+', 'group' => '[a-z_]+'])
     ->middleware('throttle:fic-webhook')
     ->name('webhooks.fic.handle');
+
+// Fatture in Cloud Sync and Dashboard API endpoints
+Route::prefix('fic')->group(function () {
+    Route::post('/initial-sync', [FicSyncController::class, 'initialSync'])
+        ->name('fic.initial-sync');
+    Route::get('/events', [FicSyncController::class, 'events'])
+        ->name('fic.events');
+    Route::get('/metrics', [FicSyncController::class, 'metrics'])
+        ->name('fic.metrics');
+});

@@ -72,4 +72,44 @@ class FicAccount extends Model
     {
         return $this->hasMany(FicSubscription::class, 'fic_account_id');
     }
+
+    /**
+     * Get the clients for the account.
+     *
+     * @return HasMany<FicClient>
+     */
+    public function clients(): HasMany
+    {
+        return $this->hasMany(FicClient::class, 'fic_account_id');
+    }
+
+    /**
+     * Get the quotes for the account.
+     *
+     * @return HasMany<FicQuote>
+     */
+    public function quotes(): HasMany
+    {
+        return $this->hasMany(FicQuote::class, 'fic_account_id');
+    }
+
+    /**
+     * Get the invoices for the account.
+     *
+     * @return HasMany<FicInvoice>
+     */
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(FicInvoice::class, 'fic_account_id');
+    }
+
+    /**
+     * Get the events for the account.
+     *
+     * @return HasMany<FicEvent>
+     */
+    public function events(): HasMany
+    {
+        return $this->hasMany(FicEvent::class, 'fic_account_id');
+    }
 }

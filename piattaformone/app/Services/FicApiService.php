@@ -365,4 +365,432 @@ class FicApiService
                 : null,
         ];
     }
+
+    /**
+     * Fetch client details by ID from FIC API.
+     *
+     * @param int $clientId The FIC client ID
+     * @return array Normalized client data with keys: id, name, code, fic_created_at, fic_updated_at, raw
+     * @throws \Exception If the API call fails
+     */
+    public function fetchClientById(int $clientId): array
+    {
+        $this->initializeSdk();
+
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/entities/clients/{$clientId}";
+
+        try {
+            $response = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+            ]);
+
+            $statusCode = $response->getStatusCode();
+            $responseData = json_decode($response->getBody()->getContents(), true);
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                throw new \RuntimeException(
+                    "FIC API returned HTTP {$statusCode} when fetching client {$clientId}: " . 
+                    ($responseData['error']['message'] ?? json_encode($responseData)),
+                    $statusCode
+                );
+            }
+
+            $data = $responseData['data'] ?? $responseData;
+
+            // Normalize the response to match our database structure
+            return [
+                'id' => $data['id'] ?? $clientId,
+                'name' => $data['name'] ?? null,
+                'code' => $data['code'] ?? null,
+                'fic_created_at' => isset($data['created_at']) ? new \Carbon\Carbon($data['created_at']) : null,
+                'fic_updated_at' => isset($data['updated_at']) ? new \Carbon\Carbon($data['updated_at']) : null,
+                'raw' => $data,
+            ];
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching client', [
+                'account_id' => $this->account->id,
+                'client_id' => $clientId,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch client {$clientId} from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching client', [
+                'account_id' => $this->account->id,
+                'client_id' => $clientId,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Fetch issued quote details by ID from FIC API.
+     *
+     * @param int $quoteId The FIC quote ID
+     * @return array Normalized quote data with keys: id, number, status, total_gross, fic_date, fic_created_at, raw
+     * @throws \Exception If the API call fails
+     */
+    public function fetchIssuedQuoteById(int $quoteId): array
+    {
+        $this->initializeSdk();
+
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/issued_documents/quotes/{$quoteId}";
+
+        try {
+            $response = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+            ]);
+
+            $statusCode = $response->getStatusCode();
+            $responseData = json_decode($response->getBody()->getContents(), true);
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                throw new \RuntimeException(
+                    "FIC API returned HTTP {$statusCode} when fetching quote {$quoteId}: " . 
+                    ($responseData['error']['message'] ?? json_encode($responseData)),
+                    $statusCode
+                );
+            }
+
+            $data = $responseData['data'] ?? $responseData;
+
+            // Normalize the response to match our database structure
+            return [
+                'id' => $data['id'] ?? $quoteId,
+                'number' => $data['number'] ?? null,
+                'status' => $data['status'] ?? null,
+                'total_gross' => $data['amount_net'] ?? $data['total'] ?? $data['total_gross'] ?? null,
+                'fic_date' => isset($data['date']) ? new \Carbon\Carbon($data['date']) : null,
+                'fic_created_at' => isset($data['created_at']) ? new \Carbon\Carbon($data['created_at']) : null,
+                'raw' => $data,
+            ];
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching quote', [
+                'account_id' => $this->account->id,
+                'quote_id' => $quoteId,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch quote {$quoteId} from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching quote', [
+                'account_id' => $this->account->id,
+                'quote_id' => $quoteId,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Fetch issued invoice details by ID from FIC API.
+     *
+     * @param int $invoiceId The FIC invoice ID
+     * @return array Normalized invoice data with keys: id, number, status, total_gross, fic_date, fic_created_at, raw
+     * @throws \Exception If the API call fails
+     */
+    public function fetchIssuedInvoiceById(int $invoiceId): array
+    {
+        $this->initializeSdk();
+
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/issued_documents/invoices/{$invoiceId}";
+
+        try {
+            $response = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+            ]);
+
+            $statusCode = $response->getStatusCode();
+            $responseData = json_decode($response->getBody()->getContents(), true);
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                throw new \RuntimeException(
+                    "FIC API returned HTTP {$statusCode} when fetching invoice {$invoiceId}: " . 
+                    ($responseData['error']['message'] ?? json_encode($responseData)),
+                    $statusCode
+                );
+            }
+
+            $data = $responseData['data'] ?? $responseData;
+
+            // Normalize the response to match our database structure
+            return [
+                'id' => $data['id'] ?? $invoiceId,
+                'number' => $data['number'] ?? null,
+                'status' => $data['status'] ?? null,
+                'total_gross' => $data['amount_net'] ?? $data['total'] ?? $data['total_gross'] ?? null,
+                'fic_date' => isset($data['date']) ? new \Carbon\Carbon($data['date']) : null,
+                'fic_created_at' => isset($data['created_at']) ? new \Carbon\Carbon($data['created_at']) : null,
+                'raw' => $data,
+            ];
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching invoice', [
+                'account_id' => $this->account->id,
+                'invoice_id' => $invoiceId,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch invoice {$invoiceId} from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching invoice', [
+                'account_id' => $this->account->id,
+                'invoice_id' => $invoiceId,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Fetch list of clients from FIC API.
+     *
+     * @param array $filters Optional filters (e.g., ['page' => 1, 'per_page' => 50])
+     * @return array List of clients with pagination info
+     * @throws \Exception If the API call fails
+     */
+    public function fetchClientsList(array $filters = []): array
+    {
+        $this->initializeSdk();
+
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/entities/clients";
+        
+        $queryParams = array_merge([
+            'page' => $filters['page'] ?? 1,
+            'per_page' => $filters['per_page'] ?? 50,
+        ], $filters);
+
+        try {
+            $response = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+                'query' => $queryParams,
+            ]);
+
+            $statusCode = $response->getStatusCode();
+            $responseData = json_decode($response->getBody()->getContents(), true);
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                throw new \RuntimeException(
+                    "FIC API returned HTTP {$statusCode} when fetching clients list: " . 
+                    ($responseData['error']['message'] ?? json_encode($responseData)),
+                    $statusCode
+                );
+            }
+
+            return $responseData['data'] ?? $responseData;
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching clients list', [
+                'account_id' => $this->account->id,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch clients list from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching clients list', [
+                'account_id' => $this->account->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Fetch list of issued quotes from FIC API.
+     *
+     * @param array $filters Optional filters (e.g., ['page' => 1, 'per_page' => 50])
+     * @return array List of quotes with pagination info
+     * @throws \Exception If the API call fails
+     */
+    public function fetchQuotesList(array $filters = []): array
+    {
+        $this->initializeSdk();
+
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/issued_documents/quotes";
+        
+        $queryParams = array_merge([
+            'page' => $filters['page'] ?? 1,
+            'per_page' => $filters['per_page'] ?? 50,
+        ], $filters);
+
+        try {
+            $response = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+                'query' => $queryParams,
+            ]);
+
+            $statusCode = $response->getStatusCode();
+            $responseData = json_decode($response->getBody()->getContents(), true);
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                throw new \RuntimeException(
+                    "FIC API returned HTTP {$statusCode} when fetching quotes list: " . 
+                    ($responseData['error']['message'] ?? json_encode($responseData)),
+                    $statusCode
+                );
+            }
+
+            return $responseData['data'] ?? $responseData;
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching quotes list', [
+                'account_id' => $this->account->id,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch quotes list from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching quotes list', [
+                'account_id' => $this->account->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Fetch list of issued invoices from FIC API.
+     *
+     * @param array $filters Optional filters (e.g., ['page' => 1, 'per_page' => 50])
+     * @return array List of invoices with pagination info
+     * @throws \Exception If the API call fails
+     */
+    public function fetchInvoicesList(array $filters = []): array
+    {
+        $this->initializeSdk();
+
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/issued_documents/invoices";
+        
+        $queryParams = array_merge([
+            'page' => $filters['page'] ?? 1,
+            'per_page' => $filters['per_page'] ?? 50,
+        ], $filters);
+
+        try {
+            $response = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+                'query' => $queryParams,
+            ]);
+
+            $statusCode = $response->getStatusCode();
+            $responseData = json_decode($response->getBody()->getContents(), true);
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                throw new \RuntimeException(
+                    "FIC API returned HTTP {$statusCode} when fetching invoices list: " . 
+                    ($responseData['error']['message'] ?? json_encode($responseData)),
+                    $statusCode
+                );
+            }
+
+            return $responseData['data'] ?? $responseData;
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching invoices list', [
+                'account_id' => $this->account->id,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch invoices list from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching invoices list', [
+                'account_id' => $this->account->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
 }

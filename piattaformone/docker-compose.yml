@@ -74,6 +74,7 @@ services:
             - 'http'
             - 'laravel.test:80'
             # - '--host-header=laravel.test:80'
+            - '--request-header-add=X-Forwarded-Host:laravel.test:80'
             - '--log=stdout'
         ports:
             - '4040:4040'  # Ngrok web interface for debugging
