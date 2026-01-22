@@ -1,0 +1,80 @@
+# FattureInCloud\EmailsApi
+
+All URIs are relative to https://api-v2.fattureincloud.it, except if the operation defines another base path.
+
+| Method | HTTP request | Description |
+| ------------- | ------------- | ------------- |
+| [**listEmails()**](EmailsApi.md#listEmails) | **GET** /c/{company_id}/emails | List Emails |
+
+
+## `listEmails()`
+
+```php
+listEmails($company_id, $fields, $fieldset, $sort, $page, $per_page, $q): \FattureInCloud\Model\ListEmailsResponse
+```
+
+List Emails
+
+List Emails.
+
+### Example
+
+```php
+<?php
+require_once(__DIR__ . '/vendor/autoload.php');
+
+
+// Configure OAuth2 access token for authorization: OAuth2AuthenticationCodeFlow
+$config = FattureInCloud\Configuration::getDefaultConfiguration()->setAccessToken('YOUR_ACCESS_TOKEN');
+
+
+$apiInstance = new FattureInCloud\Api\EmailsApi(
+    // If you want use custom http client, pass your client which implements `GuzzleHttp\ClientInterface`.
+    // This is optional, `GuzzleHttp\Client` will be used as default.
+    new GuzzleHttp\Client(),
+    $config
+);
+$company_id = 12345; // int | The ID of the company.
+$fields = 'fields_example'; // string | List of comma-separated fields.
+$fieldset = 'fieldset_example'; // string | Name of the fieldset.
+$sort = 'sort_example'; // string | List of comma-separated fields for result sorting (minus for desc sorting).
+$page = 1; // int | The page to retrieve.
+$per_page = 5; // int | The size of the page.
+$q = 'q_example'; // string | Query for filtering the results.
+
+try {
+    $result = $apiInstance->listEmails($company_id, $fields, $fieldset, $sort, $page, $per_page, $q);
+    print_r($result);
+} catch (Exception $e) {
+    echo 'Exception when calling EmailsApi->listEmails: ', $e->getMessage(), PHP_EOL;
+}
+```
+
+### Parameters
+
+| Name | Type | Description  | Notes |
+| ------------- | ------------- | ------------- | ------------- |
+| **company_id** | **int**| The ID of the company. | |
+| **fields** | **string**| List of comma-separated fields. | [optional] |
+| **fieldset** | **string**| Name of the fieldset. | [optional] |
+| **sort** | **string**| List of comma-separated fields for result sorting (minus for desc sorting). | [optional] |
+| **page** | **int**| The page to retrieve. | [optional] [default to 1] |
+| **per_page** | **int**| The size of the page. | [optional] [default to 5] |
+| **q** | **string**| Query for filtering the results. | [optional] |
+
+### Return type
+
+[**\FattureInCloud\Model\ListEmailsResponse**](../Model/ListEmailsResponse.md)
+
+### Authorization
+
+[OAuth2AuthenticationCodeFlow](../../README.md#OAuth2AuthenticationCodeFlow)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: `application/json`
+
+[[Back to top]](#) [[Back to API list]](../../README.md#endpoints)
+[[Back to Model list]](../../README.md#models)
+[[Back to README]](../../README.md)
