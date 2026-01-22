@@ -1,12 +1,20 @@
 {
     "mcpServers": {
         "laravel-boost": {
-            "command": "/home/manager/projects/piattaformone/piattaformone/vendor/bin/sail",
+            "command": "docker",
             "args": [
+                "compose",
+                "--project-directory",
+                "/home/manager/projects/piattaformone/piattaformone",
+                "--file",
+                "/home/manager/projects/piattaformone/piattaformone/docker-compose.yml",
+                "exec",
+                "-T",
+                "laravel.test",
+                "php",
                 "artisan",
                 "boost:mcp"
-            ],
-            "cwd": "/home/manager/projects/piattaformone/piattaformone"
+            ]
         }
     }
 }
