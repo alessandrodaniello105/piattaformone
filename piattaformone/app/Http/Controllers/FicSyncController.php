@@ -61,7 +61,8 @@ class FicSyncController extends Controller
             // Sync clients
             try {
                 $clientsData = $apiService->fetchClientsList(['per_page' => 100]);
-                $clients = $clientsData['data'] ?? [];
+                // fetchClientsList returns the data array directly, not wrapped in ['data']
+                $clients = is_array($clientsData) ? $clientsData : [];
 
                 foreach ($clients as $clientData) {
                     $client = FicClient::updateOrCreate(
@@ -98,7 +99,8 @@ class FicSyncController extends Controller
             // Sync quotes
             try {
                 $quotesData = $apiService->fetchQuotesList(['per_page' => 100]);
-                $quotes = $quotesData['data'] ?? [];
+                // fetchQuotesList returns the data array directly, not wrapped in ['data']
+                $quotes = is_array($quotesData) ? $quotesData : [];
 
                 foreach ($quotes as $quoteData) {
                     $quote = FicQuote::updateOrCreate(
@@ -139,7 +141,8 @@ class FicSyncController extends Controller
             // Sync invoices
             try {
                 $invoicesData = $apiService->fetchInvoicesList(['per_page' => 100]);
-                $invoices = $invoicesData['data'] ?? [];
+                // fetchInvoicesList returns the data array directly, not wrapped in ['data']
+                $invoices = is_array($invoicesData) ? $invoicesData : [];
 
                 foreach ($invoices as $invoiceData) {
                     $invoice = FicInvoice::updateOrCreate(
@@ -377,11 +380,11 @@ class FicSyncController extends Controller
                 'invoices' => array_fill(0, 12, 0),
             ];
 
-            // Get clients grouped by year-month
+            // Get clients grouped by year-month (PostgreSQL compatible)
             $clientsData = FicClient::where('fic_account_id', $account->id)
                 ->whereNotNull('fic_created_at')
-                ->selectRaw('YEAR(fic_created_at) as year, MONTH(fic_created_at) as month, COUNT(*) as count')
-                ->groupBy('year', 'month')
+                ->selectRaw('EXTRACT(YEAR FROM fic_created_at)::integer as year, EXTRACT(MONTH FROM fic_created_at)::integer as month, COUNT(*) as count')
+                ->groupBy(DB::raw('EXTRACT(YEAR FROM fic_created_at)'), DB::raw('EXTRACT(MONTH FROM fic_created_at)'))
                 ->get();
 
             foreach ($clientsData as $data) {
@@ -391,11 +394,11 @@ class FicSyncController extends Controller
                 }
             }
 
-            // Get quotes grouped by year-month
+            // Get quotes grouped by year-month (PostgreSQL compatible)
             $quotesData = FicQuote::where('fic_account_id', $account->id)
                 ->whereNotNull('fic_created_at')
-                ->selectRaw('YEAR(fic_created_at) as year, MONTH(fic_created_at) as month, COUNT(*) as count')
-                ->groupBy('year', 'month')
+                ->selectRaw('EXTRACT(YEAR FROM fic_created_at)::integer as year, EXTRACT(MONTH FROM fic_created_at)::integer as month, COUNT(*) as count')
+                ->groupBy(DB::raw('EXTRACT(YEAR FROM fic_created_at)'), DB::raw('EXTRACT(MONTH FROM fic_created_at)'))
                 ->get();
 
             foreach ($quotesData as $data) {
@@ -405,11 +408,11 @@ class FicSyncController extends Controller
                 }
             }
 
-            // Get invoices grouped by year-month
+            // Get invoices grouped by year-month (PostgreSQL compatible)
             $invoicesData = FicInvoice::where('fic_account_id', $account->id)
                 ->whereNotNull('fic_created_at')
-                ->selectRaw('YEAR(fic_created_at) as year, MONTH(fic_created_at) as month, COUNT(*) as count')
-                ->groupBy('year', 'month')
+                ->selectRaw('EXTRACT(YEAR FROM fic_created_at)::integer as year, EXTRACT(MONTH FROM fic_created_at)::integer as month, COUNT(*) as count')
+                ->groupBy(DB::raw('EXTRACT(YEAR FROM fic_created_at)'), DB::raw('EXTRACT(MONTH FROM fic_created_at)'))
                 ->get();
 
             foreach ($invoicesData as $data) {
@@ -509,5 +512,158 @@ class FicSyncController extends Controller
             }
         }
         return null;
+    }
+
+    /**
+     * Get list of synced clients.
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function clients(Request $request): JsonResponse
+    {
+        try {
+            $perPage = (int) ($request->input('per_page', 25));
+            $perPage = min(max($perPage, 1), 100);
+
+            $account = FicAccount::where('status', 'active')
+                ->orWhereNull('status')
+                ->first();
+
+            if (!$account) {
+                $account = FicAccount::first();
+            }
+
+            if (!$account) {
+                return response()->json([
+                    'data' => [],
+                    'meta' => ['total' => 0],
+                ]);
+            }
+
+            $clients = FicClient::where('fic_account_id', $account->id)
+                ->orderBy('updated_at', 'desc')
+                ->paginate($perPage);
+
+            return response()->json([
+                'data' => $clients->items(),
+                'meta' => [
+                    'current_page' => $clients->currentPage(),
+                    'last_page' => $clients->lastPage(),
+                    'per_page' => $clients->perPage(),
+                    'total' => $clients->total(),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('FIC Sync: Error fetching clients', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to fetch clients: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Get list of synced quotes.
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function quotes(Request $request): JsonResponse
+    {
+        try {
+            $perPage = (int) ($request->input('per_page', 25));
+            $perPage = min(max($perPage, 1), 100);
+
+            $account = FicAccount::where('status', 'active')
+                ->orWhereNull('status')
+                ->first();
+
+            if (!$account) {
+                $account = FicAccount::first();
+            }
+
+            if (!$account) {
+                return response()->json([
+                    'data' => [],
+                    'meta' => ['total' => 0],
+                ]);
+            }
+
+            $quotes = FicQuote::where('fic_account_id', $account->id)
+                ->orderBy('updated_at', 'desc')
+                ->paginate($perPage);
+
+            return response()->json([
+                'data' => $quotes->items(),
+                'meta' => [
+                    'current_page' => $quotes->currentPage(),
+                    'last_page' => $quotes->lastPage(),
+                    'per_page' => $quotes->perPage(),
+                    'total' => $quotes->total(),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('FIC Sync: Error fetching quotes', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to fetch quotes: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Get list of synced invoices.
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function invoices(Request $request): JsonResponse
+    {
+        try {
+            $perPage = (int) ($request->input('per_page', 25));
+            $perPage = min(max($perPage, 1), 100);
+
+            $account = FicAccount::where('status', 'active')
+                ->orWhereNull('status')
+                ->first();
+
+            if (!$account) {
+                $account = FicAccount::first();
+            }
+
+            if (!$account) {
+                return response()->json([
+                    'data' => [],
+                    'meta' => ['total' => 0],
+                ]);
+            }
+
+            $invoices = FicInvoice::where('fic_account_id', $account->id)
+                ->orderBy('updated_at', 'desc')
+                ->paginate($perPage);
+
+            return response()->json([
+                'data' => $invoices->items(),
+                'meta' => [
+                    'current_page' => $invoices->currentPage(),
+                    'last_page' => $invoices->lastPage(),
+                    'per_page' => $invoices->perPage(),
+                    'total' => $invoices->total(),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('FIC Sync: Error fetching invoices', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to fetch invoices: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 }

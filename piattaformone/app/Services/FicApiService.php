@@ -441,6 +441,80 @@ class FicApiService
     }
 
     /**
+     * Fetch supplier details by ID from FIC API.
+     *
+     * @param int $supplierId The FIC supplier ID
+     * @return array Normalized supplier data with keys: id, name, code, fic_created_at, fic_updated_at, raw
+     * @throws \Exception If the API call fails
+     */
+    public function fetchSupplierById(int $supplierId): array
+    {
+        $this->initializeSdk();
+
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/entities/suppliers/{$supplierId}";
+
+        try {
+            $response = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+            ]);
+
+            $statusCode = $response->getStatusCode();
+            $responseData = json_decode($response->getBody()->getContents(), true);
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                throw new \RuntimeException(
+                    "FIC API returned HTTP {$statusCode} when fetching supplier {$supplierId}: " . 
+                    ($responseData['error']['message'] ?? json_encode($responseData)),
+                    $statusCode
+                );
+            }
+
+            $data = $responseData['data'] ?? $responseData;
+
+            // Normalize the response to match our database structure
+            return [
+                'id' => $data['id'] ?? $supplierId,
+                'name' => $data['name'] ?? null,
+                'code' => $data['code'] ?? null,
+                'fic_created_at' => isset($data['created_at']) ? new \Carbon\Carbon($data['created_at']) : null,
+                'fic_updated_at' => isset($data['updated_at']) ? new \Carbon\Carbon($data['updated_at']) : null,
+                'raw' => $data,
+            ];
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching supplier', [
+                'account_id' => $this->account->id,
+                'supplier_id' => $supplierId,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch supplier {$supplierId} from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching supplier', [
+                'account_id' => $this->account->id,
+                'supplier_id' => $supplierId,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
      * Fetch issued quote details by ID from FIC API.
      *
      * @param int $quoteId The FIC quote ID
@@ -787,6 +861,131 @@ class FicApiService
         } catch (\Exception $e) {
             Log::error('FIC API: Unexpected error fetching invoices list', [
                 'account_id' => $this->account->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Fetch list of webhook subscriptions from FIC API.
+     *
+     * @return array List of subscriptions with their details
+     * @throws \Exception If the API call fails
+     */
+    public function fetchSubscriptions(): array
+    {
+        $this->initializeSdk();
+
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/subscriptions";
+
+        try {
+            $response = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+            ]);
+
+            $statusCode = $response->getStatusCode();
+            $responseData = json_decode($response->getBody()->getContents(), true);
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                throw new \RuntimeException(
+                    "FIC API returned HTTP {$statusCode} when fetching subscriptions: " . 
+                    ($responseData['error']['message'] ?? json_encode($responseData)),
+                    $statusCode
+                );
+            }
+
+            return $responseData['data'] ?? [];
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching subscriptions', [
+                'account_id' => $this->account->id,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch subscriptions from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching subscriptions', [
+                'account_id' => $this->account->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Get a specific subscription by ID from FIC API.
+     *
+     * @param string $subscriptionId The FIC subscription ID
+     * @return array Subscription details
+     * @throws \Exception If the API call fails
+     */
+    public function getSubscription(string $subscriptionId): array
+    {
+        $this->initializeSdk();
+
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/subscriptions/{$subscriptionId}";
+
+        try {
+            $response = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+            ]);
+
+            $statusCode = $response->getStatusCode();
+            $responseData = json_decode($response->getBody()->getContents(), true);
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                throw new \RuntimeException(
+                    "FIC API returned HTTP {$statusCode} when fetching subscription {$subscriptionId}: " . 
+                    ($responseData['error']['message'] ?? json_encode($responseData)),
+                    $statusCode
+                );
+            }
+
+            return $responseData['data'] ?? $responseData;
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching subscription', [
+                'account_id' => $this->account->id,
+                'subscription_id' => $subscriptionId,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch subscription {$subscriptionId} from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching subscription', [
+                'account_id' => $this->account->id,
+                'subscription_id' => $subscriptionId,
                 'error' => $e->getMessage(),
             ]);
 

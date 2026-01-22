@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\WebhookReceived;
 use App\Jobs\ProcessFicWebhook;
+use App\Models\FicAccount;
 use App\Models\FicSubscription;
+use App\Services\FicApiService;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 use Illuminate\Http\JsonResponse;
@@ -140,9 +143,12 @@ class FicWebhookController extends Controller
     /**
      * Handle webhook notification (POST request with CloudEvents format).
      *
-     * Reads CloudEvents headers (ce-type, ce-time, ce-subject, etc.)
-     * and optionally validates JWT signature from Authorization header.
-     * Normalizes the payload for ProcessFicWebhook job.
+     * Supports both Binary and Structured CloudEvents content modes:
+     * - Binary: CloudEvents attributes in HTTP headers (ce-type, ce-time, etc.)
+     * - Structured: CloudEvents attributes in request body (Content-Type: application/cloudevents+json)
+     *
+     * Validates JWT signature from Authorization header and normalizes the payload
+     * for ProcessFicWebhook job.
      *
      * @param Request $request
      * @param int $accountId
@@ -161,29 +167,58 @@ class FicWebhookController extends Controller
             ->first();
 
         if (!$subscription) {
-            Log::warning('FIC Webhook: Subscription not found', [
+            // Log all request details for debugging
+            Log::warning('FIC Webhook: Subscription not found in database', [
                 'account_id' => $accountId,
                 'event_group' => $group,
                 'ip' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'method' => $request->method(),
+                'headers' => $request->headers->all(),
+                'body' => $request->all(),
+                'note' => 'This webhook was received but subscription not found in local database. Check FIC API for actual subscription status.',
             ]);
 
+            // Still return 404, but log extensively for debugging
             return response()->json([
                 'error' => 'Subscription not found or inactive'
             ], 404);
         }
 
-        // Read CloudEvents headers
-        $ceType = $request->header('ce-type');
-        $ceTime = $request->header('ce-time');
-        $ceSubject = $request->header('ce-subject');
-        $ceId = $request->header('ce-id');
-        $ceSource = $request->header('ce-source');
-        $ceSpecVersion = $request->header('ce-specversion');
+        // Determine content mode: Binary (headers) or Structured (body)
+        $contentType = $request->header('Content-Type', '');
+        $isStructuredMode = str_contains($contentType, 'application/cloudevents+json');
+        
+        // Parse request body
+        $body = $request->all();
+
+        // Extract CloudEvents attributes based on content mode
+        if ($isStructuredMode) {
+            // Structured mode: all attributes in body
+            $ceType = $body['type'] ?? null;
+            $ceTime = $body['time'] ?? null;
+            $ceSubject = $body['subject'] ?? null;
+            $ceId = $body['id'] ?? null;
+            $ceSource = $body['source'] ?? null;
+            $ceSpecVersion = $body['specversion'] ?? null;
+            $ids = $body['data']['ids'] ?? [];
+        } else {
+            // Binary mode: attributes in headers
+            $ceType = $request->header('ce-type');
+            $ceTime = $request->header('ce-time');
+            $ceSubject = $request->header('ce-subject');
+            $ceId = $request->header('ce-id');
+            $ceSource = $request->header('ce-source');
+            $ceSpecVersion = $request->header('ce-specversion');
+            $ids = $body['data']['ids'] ?? [];
+        }
 
         // Log structured information about headers and request
         Log::info('FIC Webhook: CloudEvents notification received', [
             'account_id' => $accountId,
             'event_group' => $group,
+            'content_mode' => $isStructuredMode ? 'structured' : 'binary',
+            'content_type' => $contentType,
             'ce_type' => $ceType,
             'ce_time' => $ceTime,
             'ce_subject' => $ceSubject,
@@ -248,11 +283,18 @@ class FicWebhookController extends Controller
             ]);
         }
 
-        // Parse request body
-        $body = $request->all();
+        // Validate required CloudEvents attributes
+        if (empty($ceType)) {
+            Log::warning('FIC Webhook: Missing ce-type attribute', [
+                'account_id' => $accountId,
+                'event_group' => $group,
+                'content_mode' => $isStructuredMode ? 'structured' : 'binary',
+            ]);
 
-        // Extract IDs from body (data.ids array)
-        $ids = $body['data']['ids'] ?? [];
+            return response()->json([
+                'error' => 'Missing required CloudEvents type attribute'
+            ], 400);
+        }
 
         // Log structured information about IDs received
         Log::info('FIC Webhook: Event data received', [
@@ -279,7 +321,7 @@ class FicWebhookController extends Controller
         // Normalize payload for ProcessFicWebhook job
         // Structure: event, occurred_at, subject, data.ids
         $normalizedPayload = [
-            'event' => $ceType ?? 'unknown',
+            'event' => $ceType,
             'occurred_at' => $ceTime,
             'subject' => $ceSubject,
             'ce_id' => $ceId,
@@ -295,10 +337,46 @@ class FicWebhookController extends Controller
             ProcessFicWebhook::dispatch($normalizedPayload, $accountId, $group)
                 ->onConnection('redis');
 
+            // Broadcast event for real-time monitoring
+            try {
+                // Try to fetch basic object details for display
+                $objectDetails = $this->fetchObjectDetailsForEvent($accountId, $ceType, $ids);
+                
+                $event = new WebhookReceived(
+                    accountId: $accountId,
+                    eventGroup: $group,
+                    eventType: $ceType,
+                    data: $normalizedPayload,
+                    ceId: $ceId,
+                    ceTime: $ceTime,
+                    ceSubject: $ceSubject,
+                    objectDetails: $objectDetails,
+                );
+                
+                // Broadcast using Laravel's event system
+                // This will automatically use the configured broadcaster (Reverb)
+                broadcast($event);
+                
+                Log::info('FIC Webhook: Event broadcasted successfully', [
+                    'account_id' => $accountId,
+                    'event_group' => $group,
+                    'event' => $ceType,
+                    'channels' => array_map(fn($ch) => $ch->name, $event->broadcastOn()),
+                ]);
+            } catch (\Exception $broadcastException) {
+                // Log broadcast error but don't fail the webhook processing
+                Log::warning('FIC Webhook: Failed to broadcast event', [
+                    'account_id' => $accountId,
+                    'event_group' => $group,
+                    'error' => $broadcastException->getMessage(),
+                    'trace' => $broadcastException->getTraceAsString(),
+                ]);
+            }
+
             Log::info('FIC Webhook: Notification queued for processing', [
                 'account_id' => $accountId,
                 'event_group' => $group,
-                'event' => $ceType ?? 'unknown',
+                'event' => $ceType,
                 'ids_count' => count($ids),
             ]);
 
@@ -346,6 +424,14 @@ class FicWebhookController extends Controller
      * Validates the JWT token using the public key provided by Fatture in Cloud.
      * The token should contain claims matching the CloudEvents attributes.
      *
+     * According to FIC documentation, the JWT contains:
+     * - jti: JWT ID (should match ce-id)
+     * - iss: Issuer (should be https://api-v2.fattureincloud.it)
+     * - sub: Subject (should match ce-subject)
+     * - aud: Audience (contains the Target's Endpoint)
+     * - iat: Issued at (timestamp)
+     * - aid: Application ID (FIC Application ID related to the Subscription)
+     *
      * @param string $token The JWT token from Authorization header
      * @param string|null $expectedJti The expected JWT ID (from ce-id header)
      * @param string|null $expectedSubject The expected subject (from ce-subject header)
@@ -354,6 +440,7 @@ class FicWebhookController extends Controller
     private function verifyJwtToken(?string $token, ?string $expectedJti = null, ?string $expectedSubject = null): bool
     {
         if (empty($token)) {
+            Log::warning('FIC Webhook: Empty JWT token provided');
             return false;
         }
 
@@ -371,6 +458,7 @@ class FicWebhookController extends Controller
 
         try {
             // Decode base64 public key
+            // The key is base64-encoded PEM format
             $publicKey = base64_decode($publicKeyBase64, true);
 
             if ($publicKey === false) {
@@ -385,28 +473,9 @@ class FicWebhookController extends Controller
             // FIC uses ES256 algorithm (ECDSA with P-256 and SHA-256)
             $decoded = JWT::decode($token, new Key($publicKey, 'ES256'));
 
-            // Verify claims match CloudEvents attributes if provided
-            if ($expectedJti !== null && isset($decoded->jti) && $decoded->jti !== $expectedJti) {
-                Log::warning('FIC Webhook: JWT jti claim does not match ce-id', [
-                    'expected_jti' => $expectedJti,
-                    'token_jti' => $decoded->jti ?? null,
-                ]);
-
-                return false;
-            }
-
-            if ($expectedSubject !== null && isset($decoded->sub) && $decoded->sub !== $expectedSubject) {
-                Log::warning('FIC Webhook: JWT sub claim does not match ce-subject', [
-                    'expected_subject' => $expectedSubject,
-                    'token_subject' => $decoded->sub ?? null,
-                ]);
-
-                return false;
-            }
-
-            // Verify issuer
+            // Verify issuer (required by FIC)
             $expectedIssuer = 'https://api-v2.fattureincloud.it';
-            if (isset($decoded->iss) && $decoded->iss !== $expectedIssuer) {
+            if (!isset($decoded->iss) || $decoded->iss !== $expectedIssuer) {
                 Log::warning('FIC Webhook: JWT iss claim does not match expected issuer', [
                     'expected_issuer' => $expectedIssuer,
                     'token_issuer' => $decoded->iss ?? null,
@@ -415,22 +484,168 @@ class FicWebhookController extends Controller
                 return false;
             }
 
+            // Verify jti claim matches ce-id if provided
+            if ($expectedJti !== null) {
+                if (!isset($decoded->jti) || $decoded->jti !== $expectedJti) {
+                    Log::warning('FIC Webhook: JWT jti claim does not match ce-id', [
+                        'expected_jti' => $expectedJti,
+                        'token_jti' => $decoded->jti ?? null,
+                    ]);
+
+                    return false;
+                }
+            }
+
+            // Verify sub claim matches ce-subject if provided
+            if ($expectedSubject !== null) {
+                if (!isset($decoded->sub) || $decoded->sub !== $expectedSubject) {
+                    Log::warning('FIC Webhook: JWT sub claim does not match ce-subject', [
+                        'expected_subject' => $expectedSubject,
+                        'token_subject' => $decoded->sub ?? null,
+                    ]);
+
+                    return false;
+                }
+            }
+
+            // Log successful verification with all claims
             Log::debug('FIC Webhook: JWT token verified successfully', [
                 'jti' => $decoded->jti ?? null,
                 'iss' => $decoded->iss ?? null,
                 'sub' => $decoded->sub ?? null,
                 'aud' => $decoded->aud ?? null,
+                'iat' => isset($decoded->iat) ? date('Y-m-d H:i:s', $decoded->iat) : null,
                 'aid' => $decoded->aid ?? null,
             ]);
 
             return true;
+        } catch (\Firebase\JWT\ExpiredException $e) {
+            Log::warning('FIC Webhook: JWT token expired', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        } catch (\Firebase\JWT\SignatureInvalidException $e) {
+            Log::warning('FIC Webhook: JWT signature invalid', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        } catch (\Firebase\JWT\BeforeValidException $e) {
+            Log::warning('FIC Webhook: JWT token not yet valid', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
         } catch (\Exception $e) {
             Log::warning('FIC Webhook: JWT verification failed', [
                 'error' => $e->getMessage(),
                 'exception' => get_class($e),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return false;
+        }
+    }
+
+    /**
+     * Fetch basic object details for display in the webhook notification.
+     * 
+     * This method attempts to quickly fetch minimal details (name, code, number)
+     * of the affected object(s) to display in the frontend without blocking
+     * the webhook response.
+     *
+     * @param int $accountId The FIC account ID
+     * @param string $eventType The CloudEvents event type
+     * @param array $ids Array of object IDs from the webhook
+     * @return array|null Array of object details or null if unable to fetch
+     */
+    private function fetchObjectDetailsForEvent(int $accountId, string $eventType, array $ids): ?array
+    {
+        if (empty($ids)) {
+            return null;
+        }
+
+        try {
+            $account = FicAccount::find($accountId);
+            if (!$account) {
+                return null;
+            }
+
+            $apiService = new FicApiService($account);
+            $details = [];
+
+            // Determine object type from event type
+            // Examples:
+            // - it.fattureincloud.webhooks.entities.clients.create -> client
+            // - it.fattureincloud.webhooks.entities.suppliers.delete -> supplier
+            // - it.fattureincloud.webhooks.issued_documents.invoices.create -> invoice
+            // - it.fattureincloud.webhooks.issued_documents.quotes.create -> quote
+
+            foreach ($ids as $id) {
+                try {
+                    $objectData = null;
+
+                    if (str_contains($eventType, 'entities.clients')) {
+                        // Client event
+                        $objectData = $apiService->fetchClientById((int) $id);
+                        $details[] = [
+                            'id' => $objectData['id'],
+                            'name' => $objectData['name'],
+                            'code' => $objectData['code'],
+                            'type' => 'client',
+                        ];
+                    } elseif (str_contains($eventType, 'entities.suppliers')) {
+                        // Supplier event
+                        $objectData = $apiService->fetchSupplierById((int) $id);
+                        $details[] = [
+                            'id' => $objectData['id'],
+                            'name' => $objectData['name'],
+                            'code' => $objectData['code'],
+                            'type' => 'supplier',
+                        ];
+                    } elseif (str_contains($eventType, 'issued_documents.invoices')) {
+                        // Invoice event
+                        $objectData = $apiService->fetchIssuedInvoiceById((int) $id);
+                        $details[] = [
+                            'id' => $objectData['id'],
+                            'number' => $objectData['number'],
+                            'status' => $objectData['status'],
+                            'total_gross' => $objectData['total_gross'],
+                            'type' => 'invoice',
+                        ];
+                    } elseif (str_contains($eventType, 'issued_documents.quotes')) {
+                        // Quote event
+                        $objectData = $apiService->fetchIssuedQuoteById((int) $id);
+                        $details[] = [
+                            'id' => $objectData['id'],
+                            'number' => $objectData['number'],
+                            'status' => $objectData['status'],
+                            'total_gross' => $objectData['total_gross'],
+                            'type' => 'quote',
+                        ];
+                    }
+                } catch (\Exception $e) {
+                    // Log but don't fail - we'll just show IDs if details can't be fetched
+                    Log::debug('FIC Webhook: Could not fetch object details for display', [
+                        'account_id' => $accountId,
+                        'event_type' => $eventType,
+                        'object_id' => $id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            return !empty($details) ? $details : null;
+        } catch (\Exception $e) {
+            // Don't fail the webhook if we can't fetch details
+            Log::debug('FIC Webhook: Error fetching object details for display', [
+                'account_id' => $accountId,
+                'event_type' => $eventType,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
         }
     }
 }

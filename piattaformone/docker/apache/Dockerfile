@@ -34,6 +34,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # Configure Apache
 RUN a2enmod rewrite
 RUN a2enmod headers
+RUN a2enmod proxy
+RUN a2enmod proxy_http
+RUN a2enmod proxy_wstunnel
 
 # Copy Apache configuration
 COPY 000-default.conf /etc/apache2/sites-available/000-default.conf

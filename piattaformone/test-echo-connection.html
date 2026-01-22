@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Echo Connection</title>
+</head>
+<body>
+    <h1>Test Echo Connection</h1>
+    <div id="status">Connecting...</div>
+    <div id="messages"></div>
+    
+    <script>
+        // Carica la configurazione da import.meta.env (se disponibile)
+        // Altrimenti usa valori di default
+        const reverbHost = window.location.hostname;
+        const reverbPort = window.location.protocol === 'https:' ? 443 : 80;
+        const reverbScheme = window.location.protocol === 'https:' ? 'https' : 'http';
+        
+        console.log('Testing Echo connection...');
+        console.log('Host:', reverbHost);
+        console.log('Port:', reverbPort);
+        console.log('Scheme:', reverbScheme);
+        
+        // Se Echo è disponibile, testa la connessione
+        if (window.Echo) {
+            const statusDiv = document.getElementById('status');
+            const messagesDiv = document.getElementById('messages');
+            
+            statusDiv.textContent = 'Echo disponibile, testando connessione...';
+            
+            // Test connessione
+            try {
+                const channel = window.Echo.channel('webhooks');
+                
+                channel.listen('.webhook.received', (data) => {
+                    const msg = document.createElement('div');
+                    msg.textContent = 'Webhook ricevuto: ' + JSON.stringify(data);
+                    messagesDiv.appendChild(msg);
+                    console.log('Webhook ricevuto:', data);
+                });
+                
+                // Verifica stato connessione
+                if (window.Echo.connector && window.Echo.connector.pusher) {
+                    const connection = window.Echo.connector.pusher.connection;
+                    
+                    connection.bind('connected', () => {
+                        statusDiv.textContent = '✅ Echo CONNESSO!';
+                        statusDiv.style.color = 'green';
+                    });
+                    
+                    connection.bind('disconnected', () => {
+                        statusDiv.textContent = '❌ Echo DISCONNESSO';
+                        statusDiv.style.color = 'red';
+                    });
+                    
+                    connection.bind('error', (error) => {
+                        statusDiv.textContent = '❌ Errore: ' + error;
+                        statusDiv.style.color = 'red';
+                        console.error('Echo error:', error);
+                    });
+                    
+                    connection.bind('unavailable', () => {
+                        statusDiv.textContent = '⚠️ Echo non disponibile';
+                        statusDiv.style.color = 'orange';
+                    });
+                }
+            } catch (error) {
+                statusDiv.textContent = '❌ Errore: ' + error.message;
+                statusDiv.style.color = 'red';
+                console.error('Error:', error);
+            }
+        } else {
+            document.getElementById('status').textContent = '❌ Echo non disponibile. Carica prima la pagina principale.';
+        }
+    </script>
+</body>
+</html>

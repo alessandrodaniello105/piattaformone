@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\FattureInCloudOAuthController;
+use App\Http\Controllers\FicSubscriptionController;
 use App\Http\Controllers\FicSyncController;
 use App\Http\Controllers\FicWebhookController;
 use App\Http\Controllers\WebhookController;
@@ -58,4 +59,20 @@ Route::prefix('fic')->group(function () {
         ->name('fic.events');
     Route::get('/metrics', [FicSyncController::class, 'metrics'])
         ->name('fic.metrics');
+
+    // Synced data endpoints
+    Route::get('/clients', [FicSyncController::class, 'clients'])
+        ->name('fic.clients');
+    Route::get('/quotes', [FicSyncController::class, 'quotes'])
+        ->name('fic.quotes');
+    Route::get('/invoices', [FicSyncController::class, 'invoices'])
+        ->name('fic.invoices');
+});
+
+// Fatture in Cloud Subscription endpoints
+Route::prefix('fic/subscriptions')->group(function () {
+    Route::get('/accounts', [FicSubscriptionController::class, 'accounts'])
+        ->name('fic.subscriptions.accounts');
+    Route::post('/', [FicSubscriptionController::class, 'store'])
+        ->name('fic.subscriptions.store');
 });

@@ -65,7 +65,7 @@ services:
 
     ngrok:
         image: 'ngrok/ngrok:latest'
-        restart: unless-stopped
+        # restart: always
         depends_on:
             - laravel.test
         environment:
@@ -73,8 +73,7 @@ services:
         command:
             - 'http'
             - 'laravel.test:80'
-            # - '--host-header=laravel.test:80'
-            - '--request-header-add=X-Forwarded-Host:laravel.test:80'
+            - '--host-header=rewrite'
             - '--log=stdout'
         ports:
             - '4040:4040'  # Ngrok web interface for debugging

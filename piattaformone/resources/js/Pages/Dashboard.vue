@@ -2,9 +2,12 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
+import SecondaryButton from '@/Components/SecondaryButton.vue';
+import { router } from '@inertiajs/vue3';
 
 // Reactive state
 const events = ref([]);
+const webhooks = ref([]);
 const metrics = ref({
     series: {
         clients: [],
@@ -21,9 +24,13 @@ const loadingMetrics = ref(false);
 const syncing = ref(false);
 const syncMessage = ref(null);
 const syncError = ref(null);
+const echoConnected = ref(false);
 
 // Polling interval
 let eventsPollInterval = null;
+
+// Store channel reference for cleanup
+let accountChannel = null;
 const POLL_INTERVAL = 30000; // 30 seconds
 
 // Fetch events from API
@@ -93,6 +100,15 @@ const performSync = async () => {
 };
 
 // Format date for display
+// Format currency value
+const formatCurrency = (value) => {
+    if (!value) return '0.00';
+    return parseFloat(value).toLocaleString('it-IT', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
+};
+
 const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
@@ -150,10 +166,142 @@ const getBarHeight = (count) => {
     return max > 0 ? (count / max) * 100 : 0;
 };
 
+// Helper function to add webhook with deduplication based on ce_id
+const addWebhookToList = (data) => {
+    const webhookId = data.ce_id || `webhook-${Date.now()}-${Math.random()}`;
+    
+    // Check if webhook with same ce_id already exists
+    const existingIndex = webhooks.value.findIndex(w => w.ce_id === data.ce_id && data.ce_id);
+    
+    if (existingIndex !== -1) {
+        // Webhook already exists, skip adding duplicate
+        console.log('Webhook already in list, skipping duplicate:', data.ce_id);
+        return;
+    }
+    
+    // Add to webhooks list (most recent first, limit to 50)
+    webhooks.value.unshift({
+        ...data,
+        id: webhookId,
+    });
+    
+    // Keep only last 50 webhooks
+    if (webhooks.value.length > 50) {
+        webhooks.value = webhooks.value.slice(0, 50);
+    }
+    
+    // Refresh events list to show new data
+    fetchEvents();
+};
+
+// Setup Echo listeners for real-time webhook notifications
+const setupEchoListeners = () => {
+    if (!window.Echo) {
+        console.warn('Echo is not available');
+        return;
+    }
+
+    // Verifica che Echo sia completamente inizializzato
+    if (!window.Echo.channel || typeof window.Echo.channel !== 'function') {
+        console.warn('Echo.channel is not available');
+        return;
+    }
+
+    try {
+        // Listen to account-specific channel for multi-tenant support
+        // Each account receives only its own webhook events
+        // TODO: Make account_id dynamic based on current user/account context
+        const accountId = 1; // For now, hardcoded to account 1
+        accountChannel = window.Echo.channel(`webhooks.account.${accountId}`);
+        if (accountChannel && accountChannel.listen) {
+            accountChannel.listen('.webhook.received', (data) => {
+                try {
+                    console.log('Account webhook received:', data);
+                    
+                    // Add to webhooks list (most recent first, limit to 50)
+                    webhooks.value.unshift({
+                        ...data,
+                        id: data.ce_id || `webhook-${Date.now()}-${Math.random()}`,
+                    });
+                    
+                    // Keep only last 50 webhooks
+                    if (webhooks.value.length > 50) {
+                        webhooks.value = webhooks.value.slice(0, 50);
+                    }
+                    
+                    // Refresh events list to show new data
+                    fetchEvents();
+                } catch (err) {
+                    console.error('Error processing account webhook data:', err);
+                }
+            });
+        }
+
+        // Listen for connection status (solo se disponibile)
+        if (window.Echo.connector && 
+            window.Echo.connector.pusher && 
+            window.Echo.connector.pusher.connection) {
+            
+            const connection = window.Echo.connector.pusher.connection;
+            
+            connection.bind('connected', () => {
+                echoConnected.value = true;
+                console.log('Echo connected');
+            });
+
+            connection.bind('disconnected', () => {
+                echoConnected.value = false;
+                console.log('Echo disconnected');
+            });
+
+            connection.bind('error', (error) => {
+                console.error('Echo connection error:', error);
+                echoConnected.value = false;
+            });
+        }
+    } catch (error) {
+        console.error('Error setting up Echo listeners:', error);
+        // Non bloccare l'applicazione se Echo non funziona
+        echoConnected.value = false;
+    }
+};
+
+// Format webhook event type for display
+const formatWebhookEventType = (eventType) => {
+    if (!eventType) return 'Unknown';
+    
+    // Extract meaningful parts from CloudEvents type
+    // e.g., "it.fattureincloud.webhooks.entities.clients.create" -> "Client Created"
+    const parts = eventType.split('.');
+    const action = parts[parts.length - 1]; // create, update, delete
+    const resource = parts[parts.length - 2]; // clients, invoices, quotes, etc.
+    
+    const actionLabels = {
+        create: 'Creato',
+        update: 'Aggiornato',
+        delete: 'Eliminato',
+    };
+    
+    const resourceLabels = {
+        clients: 'Cliente',
+        invoices: 'Fattura',
+        quotes: 'Preventivo',
+        entities: 'Entità',
+    };
+    
+    const actionLabel = actionLabels[action] || action;
+    const resourceLabel = resourceLabels[resource] || resource;
+    
+    return `${resourceLabel} ${actionLabel}`;
+};
+
 // Lifecycle hooks
 onMounted(() => {
     fetchEvents();
     fetchMetrics();
+    
+    // Setup Echo listeners for real-time webhooks
+    setupEchoListeners();
     
     // Start polling for events
     eventsPollInterval = setInterval(() => {
@@ -162,8 +310,30 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    // Clear polling interval
     if (eventsPollInterval) {
         clearInterval(eventsPollInterval);
+        eventsPollInterval = null;
+    }
+    
+    // Clean up Echo channels properly
+    if (window.Echo) {
+        try {
+            // Stop listening to events before leaving
+            if (accountChannel && accountChannel.stopListening) {
+                accountChannel.stopListening('.webhook.received');
+            }
+            
+            // Leave channel
+            if (accountChannel) {
+                window.Echo.leave('webhooks.account.1');
+            }
+            
+            // Clear reference
+            accountChannel = null;
+        } catch (error) {
+            console.error('Error cleaning up Echo channels:', error);
+        }
     }
 });
 </script>
@@ -187,11 +357,18 @@ onUnmounted(() => {
                                 Sincronizza i dati iniziali da Fatture in Cloud
                             </p>
                         </div>
-                        <PrimaryButton
-                            @click="performSync"
-                            :disabled="syncing"
-                            class="min-w-[150px]"
-                        >
+                        <div class="flex gap-3">
+                            <SecondaryButton @click="router.visit('/fic/data')">
+                                Visualizza Dati
+                            </SecondaryButton>
+                            <SecondaryButton @click="router.visit('/fic/subscriptions/create')">
+                                Crea Subscription
+                            </SecondaryButton>
+                            <PrimaryButton
+                                @click="performSync"
+                                :disabled="syncing"
+                                class="min-w-[150px]"
+                            >
                             <span v-if="syncing" class="flex items-center">
                                 <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -201,8 +378,9 @@ onUnmounted(() => {
                             </span>
                             <span v-else>Sincronizza da FIC</span>
                         </PrimaryButton>
+                        </div>
                     </div>
-                    
+
                     <!-- Sync Messages -->
                     <div v-if="syncMessage" class="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
                         <p class="text-sm text-green-800">{{ syncMessage }}</p>
@@ -306,6 +484,100 @@ onUnmounted(() => {
                                 <div class="flex items-center gap-2">
                                     <div class="w-4 h-4 bg-green-500 rounded"></div>
                                     <span class="text-sm text-gray-600">Fatture</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Real-time Webhooks Section -->
+                <div class="bg-white overflow-hidden shadow-xl sm:rounded-lg">
+                    <div class="p-6 border-b border-gray-200">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <h3 class="text-lg font-semibold text-gray-900">Webhook in Tempo Reale</h3>
+                                <div class="flex items-center gap-2">
+                                    <div 
+                                        :class="echoConnected ? 'bg-green-500' : 'bg-red-500'"
+                                        class="w-2 h-2 rounded-full"
+                                    ></div>
+                                    <span class="text-xs text-gray-500">
+                                        {{ echoConnected ? 'Connesso' : 'Disconnesso' }}
+                                    </span>
+                                </div>
+                            </div>
+                            <span class="text-sm text-gray-500">
+                                {{ webhooks.length }} webhook ricevuti
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <div v-if="webhooks.length === 0" class="p-12 text-center">
+                        <p class="text-gray-500">Nessun webhook ricevuto ancora</p>
+                        <p class="text-sm text-gray-400 mt-2">
+                            I webhook da Fatture in Cloud appariranno qui in tempo reale
+                        </p>
+                    </div>
+                    
+                    <div v-else class="divide-y divide-gray-200 max-h-96 overflow-y-auto">
+                        <div
+                            v-for="webhook in webhooks"
+                            :key="webhook.id"
+                            class="p-4 hover:bg-gray-50 transition-colors"
+                        >
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="flex-1">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <span class="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800">
+                                            {{ formatWebhookEventType(webhook.event_type) }}
+                                        </span>
+                                        <span class="text-xs text-gray-500">
+                                            Account: {{ webhook.account_id }} | Group: {{ webhook.event_group }}
+                                        </span>
+                                    </div>
+                                    
+                                    <!-- Object Details -->
+                                    <div v-if="webhook.object_details && webhook.object_details.length > 0" class="mb-2">
+                                        <div v-for="(obj, idx) in webhook.object_details" :key="idx" class="text-sm text-gray-700 mb-1">
+                                            <span v-if="obj.type === 'client'" class="font-medium text-blue-600">
+                                                Cliente:
+                                            </span>
+                                            <span v-else-if="obj.type === 'supplier'" class="font-medium text-orange-600">
+                                                Fornitore:
+                                            </span>
+                                            <span v-else-if="obj.type === 'invoice'" class="font-medium text-green-600">
+                                                Fattura:
+                                            </span>
+                                            <span v-else-if="obj.type === 'quote'" class="font-medium text-yellow-600">
+                                                Preventivo:
+                                            </span>
+                                            <span v-else class="font-medium text-gray-600">
+                                                Oggetto:
+                                            </span>
+                                            
+                                            <span v-if="obj.name" class="ml-1">
+                                                {{ obj.name }}
+                                                <span v-if="obj.code" class="text-gray-500">({{ obj.code }})</span>
+                                            </span>
+                                            <span v-else-if="obj.number" class="ml-1">
+                                                #{{ obj.number }}
+                                                <span v-if="obj.status" class="text-gray-500">({{ obj.status }})</span>
+                                                <span v-if="obj.total_gross" class="text-gray-500 ml-2">€{{ formatCurrency(obj.total_gross) }}</span>
+                                            </span>
+                                            <span v-else class="ml-1 text-gray-500">
+                                                ID: {{ obj.id }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Fallback: Show IDs if no object details available -->
+                                    <div v-else-if="webhook.data?.ids" class="text-xs text-gray-600 mb-1">
+                                        <span class="font-medium">IDs:</span> {{ webhook.data.ids.join(', ') }}
+                                    </div>
+                                    
+                                    <p class="text-xs text-gray-500 mt-2">
+                                        {{ formatDate(webhook.received_at || webhook.ce_time) }}
+                                    </p>
                                 </div>
                             </div>
                         </div>
