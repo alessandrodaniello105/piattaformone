@@ -18,11 +18,11 @@ export default defineConfig({
     ],
     server: {
         host: '0.0.0.0',
-        port: 5173,
+        port: 5174,
         strictPort: true,
         hmr: {
             host: process.env.VITE_HMR_HOST || 'localhost',
-            port: process.env.VITE_HMR_CLIENT_PORT ? parseInt(process.env.VITE_HMR_CLIENT_PORT) : 5173,
+            port: process.env.VITE_HMR_CLIENT_PORT ? parseInt(process.env.VITE_HMR_CLIENT_PORT) : 5174,
             protocol: process.env.VITE_HMR_CLIENT_PORT === '443' ? 'wss' : 'ws',
         },
         watch: {

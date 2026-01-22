@@ -1,0 +1,12 @@
+{
+    "mcpServers": {
+        "laravel-boost": {
+            "command": "/home/manager/projects/piattaformone/piattaformone/vendor/bin/sail",
+            "args": [
+                "artisan",
+                "boost:mcp"
+            ],
+            "cwd": "/home/manager/projects/piattaformone/piattaformone"
+        }
+    }
+}

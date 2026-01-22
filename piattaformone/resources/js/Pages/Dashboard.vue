@@ -231,6 +231,7 @@ const setupEchoListeners = () => {
                     
                     // Refresh events list to show new data
                     fetchEvents();
+                    fetchMetrics();
                 } catch (err) {
                     console.error('Error processing account webhook data:', err);
                 }
@@ -244,9 +245,29 @@ const setupEchoListeners = () => {
             
             const connection = window.Echo.connector.pusher.connection;
             
+            // Check current connection state immediately (connection might already be established)
+            const checkCurrentState = () => {
+                // Pusher connection states: 'initialized', 'connecting', 'connected', 'unavailable', 'failed', 'disconnected'
+                const currentState = connection.state;
+                if (currentState === 'connected') {
+                    echoConnected.value = true;
+                    console.log('Echo already connected (state:', currentState, ')');
+                } else {
+                    echoConnected.value = false;
+                    console.log('Echo connection state:', currentState);
+                }
+            };
+            
+            // Check immediately
+            checkCurrentState();
+            
+            // Also check after a short delay in case connection is still establishing
+            setTimeout(checkCurrentState, 500);
+            
+            // Bind to future connection events
             connection.bind('connected', () => {
                 echoConnected.value = true;
-                console.log('Echo connected');
+                console.log('Echo connected (event)');
             });
 
             connection.bind('disconnected', () => {
@@ -258,7 +279,34 @@ const setupEchoListeners = () => {
                 console.error('Echo connection error:', error);
                 echoConnected.value = false;
             });
+
+            connection.bind('unavailable', () => {
+                console.warn('Echo connection unavailable');
+                echoConnected.value = false;
+            });
+
+            connection.bind('failed', () => {
+                console.error('Echo connection failed');
+                echoConnected.value = false;
+            });
+        } else {
+            // If connector structure is different, try alternative approach
+            console.warn('Echo connector structure not as expected');
+            // Try periodic check as fallback
+            const checkInterval = setInterval(() => {
+                if (window.Echo?.connector?.pusher?.connection) {
+                    const conn = window.Echo.connector.pusher.connection;
+                    if (conn.state === 'connected') {
+                        echoConnected.value = true;
+                        clearInterval(checkInterval);
+                    }
+                }
+            }, 500);
+            
+            // Clear interval after 10 seconds if still not found
+            setTimeout(() => clearInterval(checkInterval), 10000);
         }
+
     } catch (error) {
         console.error('Error setting up Echo listeners:', error);
         // Non bloccare l'applicazione se Echo non funziona

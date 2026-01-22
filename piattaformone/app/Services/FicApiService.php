@@ -992,4 +992,111 @@ class FicApiService
             throw $e;
         }
     }
+
+    /**
+     * Update an existing subscription by FIC subscription ID.
+     *
+     * @param string $ficSubscriptionId The FIC subscription ID (e.g., 'SUB3098')
+     * @param string $webhookUrl The new webhook URL (sink)
+     * @param array|null $eventTypes Optional: new event types (if null, keeps existing)
+     * @return array Subscription data with keys: id, verified, types, sink
+     * @throws \Exception If the API call fails
+     */
+    public function updateSubscriptionById(
+        string $ficSubscriptionId,
+        string $webhookUrl,
+        ?array $eventTypes = null
+    ): array {
+        $this->initializeSdk();
+
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/subscriptions/{$ficSubscriptionId}";
+
+        // First, get current subscription to preserve event types
+        $currentSubscription = null;
+        try {
+            $getResponse = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+            ]);
+            $currentData = json_decode($getResponse->getBody()->getContents(), true);
+            $currentSubscription = $currentData['data'] ?? null;
+            
+            if (!$currentSubscription) {
+                throw new \RuntimeException("Could not fetch current subscription data");
+            }
+        } catch (\Exception $e) {
+            Log::error('FIC API: Could not fetch current subscription before update', [
+                'subscription_id' => $ficSubscriptionId,
+                'error' => $e->getMessage(),
+            ]);
+            throw new \RuntimeException("Failed to fetch current subscription: " . $e->getMessage());
+        }
+
+        // Use provided event types or keep existing ones exactly as they are
+        $typesToUse = $eventTypes ?? ($currentSubscription['types'] ?? []);
+        
+        // Build payload - only include fields we want to update
+        // According to FIC docs, when updating sink, we should include existing types
+        $payload = [
+            'data' => [
+                'sink' => $webhookUrl,
+                'types' => $typesToUse, // Must include existing types when updating sink
+                'verification_method' => $currentSubscription['verification_method'] ?? 'header',
+                'config' => $currentSubscription['config'] ?? [
+                    'mapping' => 'binary',
+                ],
+            ],
+        ];
+
+        Log::info('FIC API: Updating subscription', [
+            'subscription_id' => $ficSubscriptionId,
+            'new_sink' => $webhookUrl,
+            'event_types_count' => count($typesToUse),
+            'event_types' => $typesToUse,
+        ]);
+
+        $response = $this->httpClient->request('PUT', $url, [
+            'headers' => [
+                'Authorization' => "Bearer {$accessToken}",
+                'Content-Type' => 'application/json',
+            ],
+            'json' => $payload,
+        ]);
+
+        $statusCode = $response->getStatusCode();
+        $responseData = json_decode($response->getBody()->getContents(), true);
+
+        if ($statusCode < 200 || $statusCode >= 300) {
+            $errorMessage = $responseData['error']['message'] ?? json_encode($responseData);
+            Log::error('FIC API: Subscription update failed', [
+                'subscription_id' => $ficSubscriptionId,
+                'status_code' => $statusCode,
+                'error' => $errorMessage,
+                'payload' => $payload,
+            ]);
+            throw new \RuntimeException(
+                "FIC API returned HTTP {$statusCode}: {$errorMessage}",
+                $statusCode
+            );
+        }
+
+        $data = $responseData['data'] ?? $responseData;
+
+        Log::info('FIC API: Subscription updated successfully', [
+            'account_id' => $this->account->id,
+            'subscription_id' => $ficSubscriptionId,
+            'new_url' => $webhookUrl,
+            'verified' => $data['verified'] ?? false,
+        ]);
+
+        return $data;
+    }
+
 }
+
