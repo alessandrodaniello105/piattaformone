@@ -409,6 +409,7 @@ class FicApiService
                 'id' => $data['id'] ?? $clientId,
                 'name' => $data['name'] ?? null,
                 'code' => $data['code'] ?? null,
+                'vat_number' => $data['vat_number'] ?? null,
                 'fic_created_at' => isset($data['created_at']) ? new \Carbon\Carbon($data['created_at']) : null,
                 'fic_updated_at' => isset($data['updated_at']) ? new \Carbon\Carbon($data['updated_at']) : null,
                 'raw' => $data,
@@ -483,6 +484,7 @@ class FicApiService
                 'id' => $data['id'] ?? $supplierId,
                 'name' => $data['name'] ?? null,
                 'code' => $data['code'] ?? null,
+                'vat_number' => $data['vat_number'] ?? null,
                 'fic_created_at' => isset($data['created_at']) ? new \Carbon\Carbon($data['created_at']) : null,
                 'fic_updated_at' => isset($data['updated_at']) ? new \Carbon\Carbon($data['updated_at']) : null,
                 'raw' => $data,
@@ -662,6 +664,221 @@ class FicApiService
 
             throw $e;
         }
+    }
+
+    /**
+     * Fetch list of suppliers from FIC API.
+     *
+     * Uses SDK SuppliersApi::listSuppliers() when available (reference implementation).
+     * Falls back to direct HTTP calls if SDK is not available.
+     *
+     * @param array $filters Optional filters (e.g., ['page' => 1, 'per_page' => 50, 'fields' => '...', 'fieldset' => '...', 'sort' => '...', 'q' => '...'])
+     * @return array List of suppliers with pagination info
+     * @throws \Exception If the API call fails
+     */
+    public function fetchSuppliersList(array $filters = []): array
+    {
+        $this->initializeSdk();
+
+        // Try to use SuppliersApi if available
+        if (class_exists(\FattureInCloud\Api\SuppliersApi::class)) {
+            return $this->fetchSuppliersListViaApi($filters);
+        }
+
+        // Fallback to direct HTTP call
+        return $this->fetchSuppliersListViaHttp($filters);
+    }
+
+    /**
+     * Fetch suppliers list using SuppliersApi (SDK method).
+     *
+     * @param array $filters
+     * @return array
+     */
+    private function fetchSuppliersListViaApi(array $filters = []): array
+    {
+        $suppliersApi = new \FattureInCloud\Api\SuppliersApi($this->httpClient, $this->config);
+
+        $companyId = $this->account->company_id;
+        $fields = $filters['fields'] ?? null;
+        $fieldset = $filters['fieldset'] ?? null;
+        $sort = $filters['sort'] ?? null;
+        $page = $filters['page'] ?? 1;
+        $perPage = $filters['per_page'] ?? 50;
+        $q = $filters['q'] ?? null;
+
+        try {
+            $response = $suppliersApi->listSuppliers(
+                $companyId,
+                $fields,
+                $fieldset,
+                $sort,
+                $page,
+                $perPage,
+                $q
+            );
+
+            // Extract data from Response object
+            // ListSuppliersResponse has a 'data' property which is an array of Supplier objects
+            $suppliers = [];
+            $supplierData = $response->getData();
+
+            if ($supplierData !== null) {
+                if (is_array($supplierData)) {
+                    // If data is directly an array of Supplier objects
+                    foreach ($supplierData as $supplier) {
+                        $suppliers[] = $this->normalizeSupplierFromModel($supplier);
+                    }
+                } else {
+                    // If data is a single Supplier object
+                    $suppliers[] = $this->normalizeSupplierFromModel($supplierData);
+                }
+            }
+
+            // Build response array matching HTTP response format
+            return [
+                'data' => $suppliers,
+                'current_page' => method_exists($response, 'getCurrentPage') ? $response->getCurrentPage() : $page,
+                'per_page' => method_exists($response, 'getPerPage') ? $response->getPerPage() : $perPage,
+                'total' => method_exists($response, 'getTotal') ? $response->getTotal() : count($suppliers),
+                'last_page' => method_exists($response, 'getLastPage') ? $response->getLastPage() : 1,
+                'from' => method_exists($response, 'getFrom') ? $response->getFrom() : (($page - 1) * $perPage + 1),
+                'to' => method_exists($response, 'getTo') ? $response->getTo() : min($page * $perPage, method_exists($response, 'getTotal') ? $response->getTotal() : count($suppliers)),
+                'first_page_url' => method_exists($response, 'getFirstPageUrl') ? $response->getFirstPageUrl() : null,
+                'last_page_url' => method_exists($response, 'getLastPageUrl') ? $response->getLastPageUrl() : null,
+                'next_page_url' => method_exists($response, 'getNextPageUrl') ? $response->getNextPageUrl() : null,
+                'prev_page_url' => method_exists($response, 'getPrevPageUrl') ? $response->getPrevPageUrl() : null,
+                'path' => method_exists($response, 'getPath') ? $response->getPath() : null,
+            ];
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching suppliers list via SDK', [
+                'account_id' => $this->account->id,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch suppliers list from FIC API via SDK (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching suppliers list via SDK', [
+                'account_id' => $this->account->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Fetch suppliers list using direct HTTP calls (fallback method).
+     *
+     * @param array $filters
+     * @return array
+     */
+    private function fetchSuppliersListViaHttp(array $filters = []): array
+    {
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/entities/suppliers";
+        
+        $queryParams = array_merge([
+            'page' => $filters['page'] ?? 1,
+            'per_page' => $filters['per_page'] ?? 50,
+        ], $filters);
+
+        try {
+            $response = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+                'query' => $queryParams,
+            ]);
+
+            $statusCode = $response->getStatusCode();
+            $responseData = json_decode($response->getBody()->getContents(), true);
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                throw new \RuntimeException(
+                    "FIC API returned HTTP {$statusCode} when fetching suppliers list: " . 
+                    ($responseData['error']['message'] ?? json_encode($responseData)),
+                    $statusCode
+                );
+            }
+
+            return $responseData['data'] ?? $responseData;
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching suppliers list', [
+                'account_id' => $this->account->id,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch suppliers list from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching suppliers list', [
+                'account_id' => $this->account->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Normalize a Supplier Model object to array format matching database structure.
+     *
+     * @param mixed $supplier Supplier Model object from SDK
+     * @return array Normalized supplier data
+     */
+    private function normalizeSupplierFromModel($supplier): array
+    {
+        // Extract data using getter methods if available, otherwise convert to array
+        $data = [];
+        
+        if (method_exists($supplier, 'toArray')) {
+            $data = $supplier->toArray();
+        } elseif (method_exists($supplier, 'jsonSerialize')) {
+            $data = $supplier->jsonSerialize();
+        } else {
+            // Try to get individual properties via getters
+            $data = [
+                'id' => method_exists($supplier, 'getId') ? $supplier->getId() : null,
+                'name' => method_exists($supplier, 'getName') ? $supplier->getName() : null,
+                'code' => method_exists($supplier, 'getCode') ? $supplier->getCode() : null,
+                'created_at' => method_exists($supplier, 'getCreatedAt') ? $supplier->getCreatedAt() : null,
+                'updated_at' => method_exists($supplier, 'getUpdatedAt') ? $supplier->getUpdatedAt() : null,
+            ];
+        }
+
+        // Ensure we have the full raw data (convert object to array if needed)
+        $raw = is_array($data) ? $data : json_decode(json_encode($data), true);
+
+        // Normalize to match database structure
+        return [
+            'id' => $raw['id'] ?? null,
+            'name' => $raw['name'] ?? null,
+            'code' => $raw['code'] ?? null,
+            'vat_number' => $raw['vat_number'] ?? null,
+            'fic_created_at' => isset($raw['created_at']) ? new \Carbon\Carbon($raw['created_at']) : null,
+            'fic_updated_at' => isset($raw['updated_at']) ? new \Carbon\Carbon($raw['updated_at']) : null,
+            'raw' => $raw,
+        ];
     }
 
     /**

@@ -19,6 +19,12 @@ class FicSubscriptionController extends Controller
     /**
      * Create a new webhook subscription using the Fatture in Cloud PHP SDK.
      *
+     * Note: According to FIC documentation, if Group Types are used when creating
+     * a subscription, they will be converted to Event Types. GET requests will
+     * always return Event Types, not the original Group Types. Therefore, we
+     * validate that the webhook URL matches the event_group extracted from the
+     * Event Types provided, ensuring consistency.
+     *
      * @param Request $request
      * @return JsonResponse
      */
@@ -46,6 +52,18 @@ class FicSubscriptionController extends Controller
         $types = $validated['types'];
         $verificationMethod = $validated['verification_method'] ?? 'header';
         $eventGroup = $validated['event_group'] ?? $this->extractEventGroup($types[0]);
+
+        // Validate that the sink URL matches the event_group
+        $expectedUrlPattern = "/api/webhooks/fic/{$accountId}/{$eventGroup}";
+        if (!str_contains($sink, $expectedUrlPattern)) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Webhook URL mismatch',
+                'message' => "The webhook URL must match the event group. Expected URL to contain: {$expectedUrlPattern}, but got: {$sink}",
+                'expected_event_group' => $eventGroup,
+                'extracted_from_types' => array_map(fn($type) => $this->extractEventGroup($type), $types),
+            ], 422);
+        }
 
         try {
             // Find the account

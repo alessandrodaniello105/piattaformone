@@ -73,6 +73,7 @@ class FicSyncController extends Controller
                         [
                             'name' => $clientData['name'] ?? null,
                             'code' => $clientData['code'] ?? null,
+                            'vat_number' => $clientData['vat_number'] ?? null,
                             'fic_created_at' => isset($clientData['created_at']) 
                                 ? Carbon::parse($clientData['created_at']) 
                                 : null,
@@ -246,6 +247,9 @@ class FicSyncController extends Controller
                         'occurred_at' => $event->occurred_at?->toIso8601String(),
                         'event_type' => $event->event_type,
                         'description' => $this->getEventDescription($event),
+                        'status' => $event->status ?? 'processed',
+                        'ce_id' => $event->payload['ce_id'] ?? null,
+                        'object_details' => null, // Will be populated from payload if needed
                     ];
                 }
             }

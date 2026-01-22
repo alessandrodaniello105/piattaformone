@@ -104,6 +104,16 @@ class FicAccount extends Model
     }
 
     /**
+     * Get the suppliers for the account.
+     *
+     * @return HasMany<FicSupplier>
+     */
+    public function suppliers(): HasMany
+    {
+        return $this->hasMany(FicSupplier::class, 'fic_account_id');
+    }
+
+    /**
      * Get the events for the account.
      *
      * @return HasMany<FicEvent>

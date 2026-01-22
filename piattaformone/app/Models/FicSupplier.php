@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class FicClient extends Model
+class FicSupplier extends Model
 {
     use HasFactory;
 
@@ -15,7 +15,7 @@ class FicClient extends Model
      *
      * @var string
      */
-    protected $table = 'fic_clients';
+    protected $table = 'fic_suppliers';
 
     /**
      * The attributes that are mass assignable.
@@ -24,7 +24,7 @@ class FicClient extends Model
      */
     protected $fillable = [
         'fic_account_id',
-        'fic_client_id',
+        'fic_supplier_id',
         'name',
         'code',
         'vat_number',
@@ -48,9 +48,9 @@ class FicClient extends Model
     }
 
     /**
-     * Get the FIC account that owns the client.
+     * Get the FIC account that owns the supplier.
      *
-     * @return BelongsTo<FicAccount, FicClient>
+     * @return BelongsTo<FicAccount, FicSupplier>
      */
     public function ficAccount(): BelongsTo
     {
@@ -71,7 +71,7 @@ class FicClient extends Model
      * Get a field from raw data if not available as a normalized column.
      *
      * This allows easy access to any field from FIC API even if it's not normalized.
-     * Example: $client->getRawField('email') or $client->getRawField('tax_code')
+     * Example: $supplier->getRawField('email') or $supplier->getRawField('tax_code')
      *
      * @param  string  $field  The field name to retrieve from raw data
      * @param  mixed  $default  Default value if field doesn't exist

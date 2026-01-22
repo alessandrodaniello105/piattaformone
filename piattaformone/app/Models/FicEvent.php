@@ -29,6 +29,7 @@ class FicEvent extends Model
         'fic_resource_id',
         'occurred_at',
         'payload',
+        'status',
     ];
 
     /**

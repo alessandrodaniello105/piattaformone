@@ -12,7 +12,13 @@ use Illuminate\Support\Facades\Log;
  * Command to sync FIC webhook subscriptions from API to local database.
  *
  * This command fetches all subscriptions from the FIC API and syncs them
- * to the local database, extracting the event_group from the webhook URL.
+ * to the local database.
+ *
+ * Important: According to FIC documentation, Group Types are converted to
+ * Event Types when creating a subscription. GET requests always return
+ * Event Types, not the original Group Types. Therefore, we extract the
+ * event_group from the Event Types returned by the API (more reliable)
+ * rather than from the URL, which may contain outdated Group Type information.
  */
 class SyncFicSubscriptions extends Command
 {
@@ -86,18 +92,43 @@ class SyncFicSubscriptions extends Command
 
                     // Extract event_group from URL
                     // URL format: https://domain.com/api/webhooks/fic/{account_id}/{event_group}
-                    $eventGroup = $this->extractEventGroupFromUrl($sink, $account->id);
+                    // Note: URL may contain Group Type (e.g., "issued_documents") if subscription
+                    // was created with Group Types, but FIC converts them to Event Types.
+                    $eventGroupFromUrl = $this->extractEventGroupFromUrl($sink, $account->id);
+                    
+                    // Extract event_group from event types (MORE RELIABLE)
+                    // According to FIC docs: "Group Types will be converted to the Event Types
+                    // while creating the subscription, so the GET requests will return the
+                    // Event Types and not the original Group Types."
+                    // Therefore, Event Types are the source of truth.
+                    $eventGroupFromTypes = !empty($types) 
+                        ? $this->extractEventGroupFromEventType($types[0])
+                        : null;
 
-                    if (!$eventGroup) {
-                        $this->warn("  ⚠️  Could not extract event_group from URL: {$sink}");
-                        // Try to extract from first event type as fallback
-                        if (!empty($types)) {
-                            $eventGroup = $this->extractEventGroupFromEventType($types[0]);
-                            $this->info("  📝 Using event_group from event type: {$eventGroup}");
-                        } else {
-                            $eventGroup = 'default';
-                            $this->info("  📝 Using default event_group: {$eventGroup}");
+                    // Determine which event_group to use
+                    // Always prefer event_group from Event Types (source of truth from FIC API)
+                    if ($eventGroupFromTypes) {
+                        $eventGroup = $eventGroupFromTypes;
+                        
+                        // Check for mismatch between URL and event types
+                        // This can happen if:
+                        // 1. Subscription was created with wrong Group Type
+                        // 2. URL was manually set incorrectly
+                        // 3. Subscription was created with Group Type but FIC converted it
+                        if ($eventGroupFromUrl && $eventGroupFromUrl !== $eventGroupFromTypes) {
+                            $this->warn("  ⚠️  DISCREPANZA: URL contiene '{$eventGroupFromUrl}' ma event type indica '{$eventGroupFromTypes}'");
+                            $this->warn("     URL: {$sink}");
+                            $this->warn("     Event Type: {$types[0]}");
+                            $this->warn("     Usando event_group dall'event type (fonte di verità da FIC API): {$eventGroupFromTypes}");
+                            $this->warn("     Nota: I Group Types vengono convertiti in Event Types da FIC, quindi gli Event Types sono più affidabili.");
                         }
+                    } elseif ($eventGroupFromUrl) {
+                        // Fallback: use URL if no event types available
+                        $eventGroup = $eventGroupFromUrl;
+                        $this->info("  📝 Using event_group from URL (no event types available): {$eventGroup}");
+                    } else {
+                        $eventGroup = 'default';
+                        $this->warn("  ⚠️  Could not extract event_group from URL or event types, using default: {$eventGroup}");
                     }
 
                     $this->line("  Subscription: {$ficSubId}");
@@ -108,36 +139,69 @@ class SyncFicSubscriptions extends Command
 
                     if ($dryRun) {
                         // Check if would be created or updated
-                        $existing = FicSubscription::where('fic_account_id', $account->id)
-                            ->where('event_group', $eventGroup)
-                            ->first();
+                        // First check by fic_subscription_id (unique)
+                        $existing = FicSubscription::where('fic_subscription_id', $ficSubId)->first();
+                        
+                        if (!$existing) {
+                            // Fallback: check by account_id + event_group
+                            $existing = FicSubscription::where('fic_account_id', $account->id)
+                                ->where('event_group', $eventGroup)
+                                ->first();
+                        }
 
                         if ($existing) {
                             $this->line("    [DRY RUN] Would update existing subscription ID: {$existing->id}");
+                            if ($existing->event_group !== $eventGroup) {
+                                $this->line("    [DRY RUN] Would update event_group from '{$existing->event_group}' to '{$eventGroup}'");
+                            }
                         } else {
                             $this->line("    [DRY RUN] Would create new subscription");
                         }
                     } else {
                         // Sync to database
-                        $subscription = FicSubscription::updateOrCreate(
-                            [
+                        // First try to find by fic_subscription_id (unique constraint)
+                        $existing = FicSubscription::where('fic_subscription_id', $ficSubId)->first();
+                        
+                        if ($existing) {
+                            // Update existing subscription (may need to update event_group if there was a mismatch)
+                            $oldEventGroup = $existing->event_group;
+                            $existing->update([
                                 'fic_account_id' => $account->id,
                                 'event_group' => $eventGroup,
-                            ],
-                            [
-                                'fic_subscription_id' => $ficSubId,
-                                'is_active' => $verified, // Only active if verified
+                                'is_active' => $verified,
                                 'webhook_secret' => null, // API doesn't return secret
                                 'expires_at' => null, // API doesn't return expiration
-                            ]
-                        );
-
-                        if ($subscription->wasRecentlyCreated) {
-                            $totalCreated++;
-                            $this->line("    ✅ Created subscription in database (ID: {$subscription->id})");
-                        } else {
+                            ]);
+                            $subscription = $existing;
+                            
                             $totalUpdated++;
-                            $this->line("    ✅ Updated subscription in database (ID: {$subscription->id})");
+                            if ($oldEventGroup !== $eventGroup) {
+                                $this->line("    ✅ Updated subscription in database (ID: {$subscription->id}) - event_group changed from '{$oldEventGroup}' to '{$eventGroup}'");
+                            } else {
+                                $this->line("    ✅ Updated subscription in database (ID: {$subscription->id})");
+                            }
+                        } else {
+                            // Try to find by account_id + event_group as fallback
+                            $subscription = FicSubscription::updateOrCreate(
+                                [
+                                    'fic_account_id' => $account->id,
+                                    'event_group' => $eventGroup,
+                                ],
+                                [
+                                    'fic_subscription_id' => $ficSubId,
+                                    'is_active' => $verified,
+                                    'webhook_secret' => null,
+                                    'expires_at' => null,
+                                ]
+                            );
+
+                            if ($subscription->wasRecentlyCreated) {
+                                $totalCreated++;
+                                $this->line("    ✅ Created subscription in database (ID: {$subscription->id})");
+                            } else {
+                                $totalUpdated++;
+                                $this->line("    ✅ Updated subscription in database (ID: {$subscription->id})");
+                            }
                         }
                     }
 
@@ -191,6 +255,11 @@ class SyncFicSubscriptions extends Command
 
     /**
      * Extract event_group from event type.
+     *
+     * This extracts the event_group from Event Types returned by FIC API.
+     * Note: FIC converts Group Types to Event Types when creating subscriptions,
+     * so GET requests always return Event Types. This makes Event Types the
+     * reliable source of truth for determining the correct event_group.
      *
      * @param string $eventType The event type (e.g., it.fattureincloud.webhooks.entities.clients.create)
      * @return string The event_group

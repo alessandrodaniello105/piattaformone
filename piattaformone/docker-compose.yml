@@ -63,6 +63,30 @@ services:
             timeout: 3s
             retries: 5
 
+    queue-worker:
+        build:
+            context: ./docker/apache
+            dockerfile: Dockerfile
+            args:
+                WWWGROUP: '${WWWGROUP:-1000}'
+                WWWUSER: '${WWWUSER:-1000}'
+        image: sail-8.4/app
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
+        environment:
+            WWWUSER: '${WWWUSER:-1000}'
+            LARAVEL_SAIL: 1
+        volumes:
+            - '.:/var/www/html'
+        networks:
+            - sail
+        depends_on:
+            - pgsql
+            - redis
+            - laravel.test
+        command: php artisan queue:work redis --verbose --tries=3 --timeout=120 --sleep=3 --max-time=3600
+        restart: unless-stopped
+
     ngrok:
         image: 'ngrok/ngrok:latest'
         # restart: always
