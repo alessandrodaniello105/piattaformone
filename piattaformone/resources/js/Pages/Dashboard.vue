@@ -179,21 +179,61 @@ const getStatusLabel = (status) => {
     }
 };
 
-// Get max value for chart scaling
+// Get max value for chart scaling (the largest value across all series becomes 100%)
 const getMaxChartValue = () => {
     const allValues = [
-        ...metrics.value.series.clients.map((d) => d.count),
-        ...metrics.value.series.quotes.map((d) => d.count),
-        ...metrics.value.series.invoices.map((d) => d.count),
+        ...metrics.value.series.clients.map((d) => Number(d.count) || 0),
+        ...metrics.value.series.quotes.map((d) => Number(d.count) || 0),
+        ...metrics.value.series.invoices.map((d) => Number(d.count) || 0),
     ];
-    const max = Math.max(...allValues, 1);
+    // Find the actual maximum value (or 1 if all are 0 to avoid division by zero)
+    const max = allValues.length > 0 ? Math.max(...allValues, 1) : 1;
+    console.log('Max chart value:', max, 'All values:', allValues);
     return max;
 };
 
-// Calculate bar height percentage
+// Calculate bar height percentage - SIMPLIFIED: only for invoices with value 5
 const getBarHeight = (count) => {
+    const numCount = Number(count) || 0;
+    if (numCount <= 0) return 0;
+    
     const max = getMaxChartValue();
-    return max > 0 ? (count / max) * 100 : 0;
+    if (max <= 0) return 0;
+    
+    // Il valore più grande sarà 100%, gli altri proporzionali
+    const percentage = (numCount / max) * 100;
+    console.log('Bar height calculation:', { numCount, max, percentage });
+    return percentage;
+};
+
+// Container height is h-64 = 256px
+const CONTAINER_HEIGHT = 256;
+
+// Get bar height in pixels (not percentage) to work correctly with flex
+const getBarHeightPixels = (count) => {
+    const numCount = Number(count) || 0;
+    
+    // If no data, use 2px
+    if (numCount <= 0) {
+        return 2;
+    }
+    
+    const max = getMaxChartValue();
+    if (max <= 0) return 2;
+    
+    // Calculate height in pixels: (count / max) * container_height
+    // Example: if max = 5, count = 5, then height = (5/5) * 256 = 256px (100%)
+    // If max = 5, count = 1, then height = (1/5) * 256 = 51.2px (20%)
+    const heightPixels = (numCount / max) * CONTAINER_HEIGHT;
+    console.log('Bar height pixels:', { numCount, max, heightPixels });
+    
+    return Math.max(heightPixels, 2); // Minimum 2px
+};
+
+// Get bar height style in pixels
+const getBarHeightStyle = (count) => {
+    const pixels = getBarHeightPixels(count);
+    return `${pixels}px`;
 };
 
 // Helper function to add webhook with deduplication based on ce_id (no longer needed, but kept for compatibility)
@@ -510,7 +550,7 @@ onUnmounted(() => {
                                         <!-- Clients bar -->
                                         <div
                                             class="flex-1 bg-blue-500 rounded-t hover:bg-blue-600 transition-colors cursor-pointer relative min-w-[8px]"
-                                            :style="{ height: `${getBarHeight(metrics.series.clients[index]?.count || 0)}%` }"
+                                            :style="{ height: getBarHeightStyle(Number(metrics.series.clients[index]?.count) || 0) }"
                                             :title="`Clienti: ${metrics.series.clients[index]?.count || 0}`"
                                         >
                                             <span class="absolute -top-6 left-1/2 transform -translate-x-1/2 text-xs text-gray-600 opacity-0 group-hover:opacity-100 whitespace-nowrap bg-white px-1 rounded shadow">
@@ -520,7 +560,7 @@ onUnmounted(() => {
                                         <!-- Quotes bar -->
                                         <div
                                             class="flex-1 bg-yellow-500 rounded-t hover:bg-yellow-600 transition-colors cursor-pointer relative min-w-[8px]"
-                                            :style="{ height: `${getBarHeight(metrics.series.quotes[index]?.count || 0)}%` }"
+                                            :style="{ height: getBarHeightStyle(Number(metrics.series.quotes[index]?.count) || 0) }"
                                             :title="`Preventivi: ${metrics.series.quotes[index]?.count || 0}`"
                                         >
                                             <span class="absolute -top-6 left-1/2 transform -translate-x-1/2 text-xs text-gray-600 opacity-0 group-hover:opacity-100 whitespace-nowrap bg-white px-1 rounded shadow">
@@ -530,7 +570,10 @@ onUnmounted(() => {
                                         <!-- Invoices bar -->
                                         <div
                                             class="flex-1 bg-green-500 rounded-t hover:bg-green-600 transition-colors cursor-pointer relative min-w-[8px]"
-                                            :style="{ height: `${getBarHeight(metrics.series.invoices[index]?.count || 0)}%` }"
+                                            :style="{ 
+                                                height: getBarHeightStyle(Number(metrics.series.invoices[index]?.count) || 0),
+                                                minHeight: Number(metrics.series.invoices[index]?.count) > 0 ? '4px' : '2px'
+                                            }"
                                             :title="`Fatture: ${metrics.series.invoices[index]?.count || 0}`"
                                         >
                                             <span class="absolute -top-6 left-1/2 transform -translate-x-1/2 text-xs text-gray-600 opacity-0 group-hover:opacity-100 whitespace-nowrap bg-white px-1 rounded shadow">
