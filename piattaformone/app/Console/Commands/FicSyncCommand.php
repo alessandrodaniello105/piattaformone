@@ -2,9 +2,13 @@
 
 namespace App\Console\Commands;
 
-use App\Jobs\SyncFicResourceJob;
 use App\Models\FicAccount;
+use App\Models\FicClient;
+use App\Models\FicInvoice;
+use App\Models\FicQuote;
+use App\Models\FicSupplier;
 use App\Services\FicApiService;
+use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -165,28 +169,19 @@ class FicSyncCommand extends Command
             $items = $response['data'] ?? [];
             foreach ($items as $item) {
                 try {
-                    $ficId = $this->extractFicId($item, $resourceType);
-                    if (! $ficId) {
-                        $progressBar->setMessage('Skipping item without ID');
+                    $result = $this->saveResource($account, $resourceType, $item);
+                    if ($result) {
+                        $synced++;
+                        $ficId = $this->extractFicId($item, $resourceType);
+                        $progressBar->setMessage("Synced {$resourceType} #{$ficId}");
+                    } else {
                         $errors++;
-
-                        continue;
+                        $progressBar->setMessage('Skipping item without ID');
                     }
-
-                    // Dispatch sync job
-                    SyncFicResourceJob::dispatch(
-                        $this->normalizeResourceType($resourceType),
-                        (int) $ficId,
-                        $account->id,
-                        'created'
-                    )->onConnection('redis');
-
-                    $synced++;
-                    $progressBar->setMessage("Synced {$resourceType} #{$ficId}");
                 } catch (\Exception $e) {
                     $errors++;
                     $progressBar->setMessage('Error syncing item: '.$e->getMessage());
-                    Log::error('FIC Sync Command: Error dispatching sync job', [
+                    Log::error('FIC Sync Command: Error saving resource', [
                         'resource_type' => $resourceType,
                         'account_id' => $account->id,
                         'error' => $e->getMessage(),
@@ -204,28 +199,19 @@ class FicSyncCommand extends Command
 
                 foreach ($items as $item) {
                     try {
-                        $ficId = $this->extractFicId($item, $resourceType);
-                        if (! $ficId) {
-                            $progressBar->setMessage('Skipping item without ID');
+                        $result = $this->saveResource($account, $resourceType, $item);
+                        if ($result) {
+                            $synced++;
+                            $ficId = $this->extractFicId($item, $resourceType);
+                            $progressBar->setMessage("Synced {$resourceType} #{$ficId}");
+                        } else {
                             $errors++;
-
-                            continue;
+                            $progressBar->setMessage('Skipping item without ID');
                         }
-
-                        // Dispatch sync job
-                        SyncFicResourceJob::dispatch(
-                            $this->normalizeResourceType($resourceType),
-                            (int) $ficId,
-                            $account->id,
-                            'created'
-                        )->onConnection('redis');
-
-                        $synced++;
-                        $progressBar->setMessage("Synced {$resourceType} #{$ficId}");
                     } catch (\Exception $e) {
                         $errors++;
                         $progressBar->setMessage('Error syncing item: '.$e->getMessage());
-                        Log::error('FIC Sync Command: Error dispatching sync job', [
+                        Log::error('FIC Sync Command: Error saving resource', [
                             'resource_type' => $resourceType,
                             'account_id' => $account->id,
                             'error' => $e->getMessage(),
@@ -303,20 +289,136 @@ class FicSyncCommand extends Command
     }
 
     /**
-     * Normalize resource type for SyncFicResourceJob (plural to singular).
+     * Save resource directly to database.
      *
+     * @param  FicAccount  $account  The FIC account
      * @param  string  $resourceType  The resource type (plural)
-     * @return string Normalized resource type (singular)
+     * @param  array  $itemData  Resource item data from API
+     * @return bool True if saved successfully, false if skipped
      */
-    private function normalizeResourceType(string $resourceType): string
+    private function saveResource(FicAccount $account, string $resourceType, array $itemData): bool
     {
         return match ($resourceType) {
-            'clients' => 'client',
-            'suppliers' => 'supplier',
-            'invoices' => 'invoice',
-            'quotes' => 'quote',
-            default => $resourceType,
+            'clients' => $this->saveClient($account, $itemData),
+            'suppliers' => $this->saveSupplier($account, $itemData),
+            'invoices' => $this->saveInvoice($account, $itemData),
+            'quotes' => $this->saveQuote($account, $itemData),
+            default => false,
         };
+    }
+
+    /**
+     * Save client to database.
+     */
+    private function saveClient(FicAccount $account, array $clientData): bool
+    {
+        if (! isset($clientData['id'])) {
+            return false;
+        }
+
+        FicClient::updateOrCreate(
+            [
+                'fic_account_id' => $account->id,
+                'fic_client_id' => $clientData['id'],
+            ],
+            [
+                'name' => $clientData['name'] ?? null,
+                'code' => $clientData['code'] ?? null,
+                'vat_number' => $clientData['vat_number'] ?? null,
+                'fic_created_at' => isset($clientData['created_at']) ? Carbon::parse($clientData['created_at']) : null,
+                'fic_updated_at' => isset($clientData['updated_at']) ? Carbon::parse($clientData['updated_at']) : null,
+                'raw' => $clientData,
+            ]
+        );
+
+        return true;
+    }
+
+    /**
+     * Save supplier to database.
+     */
+    private function saveSupplier(FicAccount $account, array $supplierData): bool
+    {
+        if (! isset($supplierData['id'])) {
+            return false;
+        }
+
+        FicSupplier::updateOrCreate(
+            [
+                'fic_account_id' => $account->id,
+                'fic_supplier_id' => $supplierData['id'],
+            ],
+            [
+                'name' => $supplierData['name'] ?? null,
+                'code' => $supplierData['code'] ?? null,
+                'vat_number' => $supplierData['vat_number'] ?? null,
+                'fic_created_at' => isset($supplierData['created_at']) ? Carbon::parse($supplierData['created_at']) : null,
+                'fic_updated_at' => isset($supplierData['updated_at']) ? Carbon::parse($supplierData['updated_at']) : null,
+                'raw' => $supplierData,
+            ]
+        );
+
+        return true;
+    }
+
+    /**
+     * Save invoice to database.
+     */
+    private function saveInvoice(FicAccount $account, array $invoiceData): bool
+    {
+        if (! isset($invoiceData['id'])) {
+            return false;
+        }
+
+        FicInvoice::updateOrCreate(
+            [
+                'fic_account_id' => $account->id,
+                'fic_invoice_id' => $invoiceData['id'],
+            ],
+            [
+                'number' => $invoiceData['number'] ?? null,
+                'status' => $invoiceData['status'] ?? null,
+                'total_gross' => $invoiceData['amount_net'] 
+                    ?? $invoiceData['total'] 
+                    ?? $invoiceData['total_gross'] 
+                    ?? null,
+                'fic_date' => isset($invoiceData['date']) ? Carbon::parse($invoiceData['date']) : null,
+                'fic_created_at' => isset($invoiceData['created_at']) ? Carbon::parse($invoiceData['created_at']) : null,
+                'raw' => $invoiceData,
+            ]
+        );
+
+        return true;
+    }
+
+    /**
+     * Save quote to database.
+     */
+    private function saveQuote(FicAccount $account, array $quoteData): bool
+    {
+        if (! isset($quoteData['id'])) {
+            return false;
+        }
+
+        FicQuote::updateOrCreate(
+            [
+                'fic_account_id' => $account->id,
+                'fic_quote_id' => $quoteData['id'],
+            ],
+            [
+                'number' => $quoteData['number'] ?? null,
+                'status' => $quoteData['status'] ?? null,
+                'total_gross' => $quoteData['amount_net'] 
+                    ?? $quoteData['total'] 
+                    ?? $quoteData['total_gross'] 
+                    ?? null,
+                'fic_date' => isset($quoteData['date']) ? Carbon::parse($quoteData['date']) : null,
+                'fic_created_at' => isset($quoteData['created_at']) ? Carbon::parse($quoteData['created_at']) : null,
+                'raw' => $quoteData,
+            ]
+        );
+
+        return true;
     }
 
     /**

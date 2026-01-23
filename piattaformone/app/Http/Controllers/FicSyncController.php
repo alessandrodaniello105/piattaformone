@@ -30,8 +30,6 @@ class FicSyncController extends Controller
      *
      * Fetches clients, quotes, and invoices from FIC and upserts them into local database.
      * Returns statistics about the sync operation.
-     *
-     * @return JsonResponse
      */
     public function initialSync(): JsonResponse
     {
@@ -41,11 +39,11 @@ class FicSyncController extends Controller
                 ->orWhereNull('status')
                 ->first();
 
-            if (!$account) {
+            if (! $account) {
                 $account = FicAccount::first();
             }
 
-            if (!$account) {
+            if (! $account) {
                 return response()->json([
                     'error' => 'No FIC account found. Please connect an account first.',
                 ], 404);
@@ -63,7 +61,7 @@ class FicSyncController extends Controller
             // Sync clients
             try {
                 $clientsData = $apiService->fetchClientsList(['per_page' => 100]);
-                // fetchClientsList returns the data array directly, not wrapped in ['data']
+                // fetchClientsList returns the data array directly (no SDK support yet)
                 $clients = is_array($clientsData) ? $clientsData : [];
 
                 foreach ($clients as $clientData) {
@@ -76,11 +74,11 @@ class FicSyncController extends Controller
                             'name' => $clientData['name'] ?? null,
                             'code' => $clientData['code'] ?? null,
                             'vat_number' => $clientData['vat_number'] ?? null,
-                            'fic_created_at' => isset($clientData['created_at']) 
-                                ? Carbon::parse($clientData['created_at']) 
+                            'fic_created_at' => isset($clientData['created_at'])
+                                ? Carbon::parse($clientData['created_at'])
                                 : null,
-                            'fic_updated_at' => isset($clientData['updated_at']) 
-                                ? Carbon::parse($clientData['updated_at']) 
+                            'fic_updated_at' => isset($clientData['updated_at'])
+                                ? Carbon::parse($clientData['updated_at'])
                                 : null,
                             'raw' => $clientData,
                         ]
@@ -102,8 +100,8 @@ class FicSyncController extends Controller
             // Sync suppliers
             try {
                 $suppliersData = $apiService->fetchSuppliersList(['per_page' => 100]);
-                // fetchSuppliersList returns the data array directly, not wrapped in ['data']
-                $suppliers = is_array($suppliersData) ? $suppliersData : [];
+                // fetchSuppliersList returns pagination structure with 'data' key when using SDK
+                $suppliers = $suppliersData['data'] ?? (is_array($suppliersData) ? $suppliersData : []);
 
                 foreach ($suppliers as $supplierData) {
                     $supplier = FicSupplier::updateOrCreate(
@@ -115,11 +113,11 @@ class FicSyncController extends Controller
                             'name' => $supplierData['name'] ?? null,
                             'code' => $supplierData['code'] ?? null,
                             'vat_number' => $supplierData['vat_number'] ?? null,
-                            'fic_created_at' => isset($supplierData['created_at']) 
-                                ? Carbon::parse($supplierData['created_at']) 
+                            'fic_created_at' => isset($supplierData['created_at'])
+                                ? Carbon::parse($supplierData['created_at'])
                                 : null,
-                            'fic_updated_at' => isset($supplierData['updated_at']) 
-                                ? Carbon::parse($supplierData['updated_at']) 
+                            'fic_updated_at' => isset($supplierData['updated_at'])
+                                ? Carbon::parse($supplierData['updated_at'])
                                 : null,
                             'raw' => $supplierData,
                         ]
@@ -141,8 +139,8 @@ class FicSyncController extends Controller
             // Sync quotes
             try {
                 $quotesData = $apiService->fetchQuotesList(['per_page' => 100]);
-                // fetchQuotesList returns the data array directly, not wrapped in ['data']
-                $quotes = is_array($quotesData) ? $quotesData : [];
+                // fetchQuotesList returns pagination structure with 'data' key when using SDK
+                $quotes = $quotesData['data'] ?? (is_array($quotesData) ? $quotesData : []);
 
                 foreach ($quotes as $quoteData) {
                     $quote = FicQuote::updateOrCreate(
@@ -153,15 +151,15 @@ class FicSyncController extends Controller
                         [
                             'number' => $quoteData['number'] ?? null,
                             'status' => $quoteData['status'] ?? null,
-                            'total_gross' => $quoteData['amount_net'] 
-                                ?? $quoteData['total'] 
-                                ?? $quoteData['total_gross'] 
+                            'total_gross' => $quoteData['amount_net']
+                                ?? $quoteData['total']
+                                ?? $quoteData['total_gross']
                                 ?? null,
-                            'fic_date' => isset($quoteData['date']) 
-                                ? Carbon::parse($quoteData['date']) 
+                            'fic_date' => isset($quoteData['date'])
+                                ? Carbon::parse($quoteData['date'])
                                 : null,
-                            'fic_created_at' => isset($quoteData['created_at']) 
-                                ? Carbon::parse($quoteData['created_at']) 
+                            'fic_created_at' => isset($quoteData['created_at'])
+                                ? Carbon::parse($quoteData['created_at'])
                                 : null,
                             'raw' => $quoteData,
                         ]
@@ -183,8 +181,8 @@ class FicSyncController extends Controller
             // Sync invoices
             try {
                 $invoicesData = $apiService->fetchInvoicesList(['per_page' => 100]);
-                // fetchInvoicesList returns the data array directly, not wrapped in ['data']
-                $invoices = is_array($invoicesData) ? $invoicesData : [];
+                // fetchInvoicesList returns pagination structure with 'data' key when using SDK
+                $invoices = $invoicesData['data'] ?? (is_array($invoicesData) ? $invoicesData : []);
 
                 foreach ($invoices as $invoiceData) {
                     $invoice = FicInvoice::updateOrCreate(
@@ -195,15 +193,15 @@ class FicSyncController extends Controller
                         [
                             'number' => $invoiceData['number'] ?? null,
                             'status' => $invoiceData['status'] ?? null,
-                            'total_gross' => $invoiceData['amount_net'] 
-                                ?? $invoiceData['total'] 
-                                ?? $invoiceData['total_gross'] 
+                            'total_gross' => $invoiceData['amount_net']
+                                ?? $invoiceData['total']
+                                ?? $invoiceData['total_gross']
                                 ?? null,
-                            'fic_date' => isset($invoiceData['date']) 
-                                ? Carbon::parse($invoiceData['date']) 
+                            'fic_date' => isset($invoiceData['date'])
+                                ? Carbon::parse($invoiceData['date'])
                                 : null,
-                            'fic_created_at' => isset($invoiceData['created_at']) 
-                                ? Carbon::parse($invoiceData['created_at']) 
+                            'fic_created_at' => isset($invoiceData['created_at'])
+                                ? Carbon::parse($invoiceData['created_at'])
                                 : null,
                             'raw' => $invoiceData,
                         ]
@@ -237,7 +235,7 @@ class FicSyncController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'Sync failed: ' . $e->getMessage(),
+                'error' => 'Sync failed: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -247,9 +245,6 @@ class FicSyncController extends Controller
      *
      * Returns a normalized feed of recent events from clients, quotes, and invoices.
      * If fic_events table exists, uses that; otherwise merges data from resource tables.
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function events(Request $request): JsonResponse
     {
@@ -262,11 +257,11 @@ class FicSyncController extends Controller
                 ->orWhereNull('status')
                 ->first();
 
-            if (!$account) {
+            if (! $account) {
                 $account = FicAccount::first();
             }
 
-            if (!$account) {
+            if (! $account) {
                 return response()->json([
                     'events' => [],
                 ]);
@@ -354,6 +349,7 @@ class FicSyncController extends Controller
                 usort($events, function ($a, $b) {
                     $timeA = $a['occurred_at'] ? Carbon::parse($a['occurred_at']) : Carbon::createFromTimestamp(0);
                     $timeB = $b['occurred_at'] ? Carbon::parse($b['occurred_at']) : Carbon::createFromTimestamp(0);
+
                     return $timeB->gt($timeA) ? 1 : -1;
                 });
 
@@ -369,7 +365,7 @@ class FicSyncController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'Failed to fetch events: ' . $e->getMessage(),
+                'error' => 'Failed to fetch events: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -378,8 +374,6 @@ class FicSyncController extends Controller
      * Get metrics/analytics for dashboard.
      *
      * Returns monthly distribution for the last 12 months and last month KPIs.
-     *
-     * @return JsonResponse
      */
     public function metrics(): JsonResponse
     {
@@ -389,11 +383,11 @@ class FicSyncController extends Controller
                 ->orWhereNull('status')
                 ->first();
 
-            if (!$account) {
+            if (! $account) {
                 $account = FicAccount::first();
             }
 
-            if (!$account) {
+            if (! $account) {
                 return response()->json([
                     'series' => [
                         'clients' => [],
@@ -511,30 +505,30 @@ class FicSyncController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'Failed to fetch metrics: ' . $e->getMessage(),
+                'error' => 'Failed to fetch metrics: '.$e->getMessage(),
             ], 500);
         }
     }
 
     /**
      * Get event description from FicEvent.
-     *
-     * @param FicEvent $event
-     * @return string
      */
     private function getEventDescription(FicEvent $event): string
     {
         $payload = $event->payload ?? [];
-        
+
         switch ($event->resource_type) {
             case 'client':
                 $name = $payload['name'] ?? 'N/A';
+
                 return "Cliente creato: {$name}";
             case 'quote':
                 $number = $payload['number'] ?? 'N/A';
+
                 return "Preventivo creato: {$number}";
             case 'invoice':
                 $number = $payload['number'] ?? 'N/A';
+
                 return "Fattura creata: {$number}";
             default:
                 return "Evento {$event->resource_type}";
@@ -543,11 +537,6 @@ class FicSyncController extends Controller
 
     /**
      * Get the index of a month in the months array.
-     *
-     * @param int $year
-     * @param int $month
-     * @param array $months
-     * @return int|null
      */
     private function getMonthIndex(int $year, int $month, array $months): ?int
     {
@@ -556,14 +545,12 @@ class FicSyncController extends Controller
                 return $index;
             }
         }
+
         return null;
     }
 
     /**
      * Get list of synced clients.
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function clients(Request $request): JsonResponse
     {
@@ -575,11 +562,11 @@ class FicSyncController extends Controller
                 ->orWhereNull('status')
                 ->first();
 
-            if (!$account) {
+            if (! $account) {
                 $account = FicAccount::first();
             }
 
-            if (!$account) {
+            if (! $account) {
                 return response()->json([
                     'data' => [],
                     'meta' => ['total' => 0],
@@ -605,16 +592,13 @@ class FicSyncController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'Failed to fetch clients: ' . $e->getMessage(),
+                'error' => 'Failed to fetch clients: '.$e->getMessage(),
             ], 500);
         }
     }
 
     /**
      * Get list of synced quotes.
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function quotes(Request $request): JsonResponse
     {
@@ -626,11 +610,11 @@ class FicSyncController extends Controller
                 ->orWhereNull('status')
                 ->first();
 
-            if (!$account) {
+            if (! $account) {
                 $account = FicAccount::first();
             }
 
-            if (!$account) {
+            if (! $account) {
                 return response()->json([
                     'data' => [],
                     'meta' => ['total' => 0],
@@ -656,16 +640,13 @@ class FicSyncController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'Failed to fetch quotes: ' . $e->getMessage(),
+                'error' => 'Failed to fetch quotes: '.$e->getMessage(),
             ], 500);
         }
     }
 
     /**
      * Get list of synced suppliers.
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function suppliers(Request $request): JsonResponse
     {
@@ -677,11 +658,11 @@ class FicSyncController extends Controller
                 ->orWhereNull('status')
                 ->first();
 
-            if (!$account) {
+            if (! $account) {
                 $account = FicAccount::first();
             }
 
-            if (!$account) {
+            if (! $account) {
                 return response()->json([
                     'data' => [],
                     'meta' => ['total' => 0],
@@ -707,16 +688,13 @@ class FicSyncController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'Failed to fetch suppliers: ' . $e->getMessage(),
+                'error' => 'Failed to fetch suppliers: '.$e->getMessage(),
             ], 500);
         }
     }
 
     /**
      * Get list of synced invoices.
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function invoices(Request $request): JsonResponse
     {
@@ -728,11 +706,11 @@ class FicSyncController extends Controller
                 ->orWhereNull('status')
                 ->first();
 
-            if (!$account) {
+            if (! $account) {
                 $account = FicAccount::first();
             }
 
-            if (!$account) {
+            if (! $account) {
                 return response()->json([
                     'data' => [],
                     'meta' => ['total' => 0],
@@ -758,7 +736,7 @@ class FicSyncController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'Failed to fetch invoices: ' . $e->getMessage(),
+                'error' => 'Failed to fetch invoices: '.$e->getMessage(),
             ], 500);
         }
     }

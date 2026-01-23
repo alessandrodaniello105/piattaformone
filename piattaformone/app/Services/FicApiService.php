@@ -24,8 +24,8 @@ class FicApiService
     /**
      * Create a new FicApiService instance.
      *
-     * @param FicAccount $account The FIC account to use for API calls
-     * @param Client|null $httpClient Optional HTTP client (useful for testing with mocks)
+     * @param  FicAccount  $account  The FIC account to use for API calls
+     * @param  Client|null  $httpClient  Optional HTTP client (useful for testing with mocks)
      */
     public function __construct(FicAccount $account, ?Client $httpClient = null)
     {
@@ -40,6 +40,7 @@ class FicApiService
      * from the FicAccount model.
      *
      * @return Configuration The initialized configuration
+     *
      * @throws \RuntimeException If access token is missing or invalid
      */
     public function initializeSdk(): Configuration
@@ -80,9 +81,10 @@ class FicApiService
      * If the SDK provides SubscriptionApi, it uses that; otherwise, it makes
      * direct HTTP calls to the FIC API.
      *
-     * @param string $eventGroup The event group (e.g., 'entity', 'issued_documents')
-     * @param string $webhookUrl The webhook URL to receive events
+     * @param  string  $eventGroup  The event group (e.g., 'entity', 'issued_documents')
+     * @param  string  $webhookUrl  The webhook URL to receive events
      * @return array Subscription data with keys: id, secret, expires_at
+     *
      * @throws \Exception If the API call fails
      */
     public function createOrRenewSubscription(string $eventGroup, string $webhookUrl): array
@@ -180,10 +182,6 @@ class FicApiService
 
     /**
      * Create or renew subscription using SubscriptionApi (SDK method).
-     *
-     * @param string $eventGroup
-     * @param string $webhookUrl
-     * @return array
      */
     private function createOrRenewSubscriptionViaApi(string $eventGroup, string $webhookUrl): array
     {
@@ -228,10 +226,6 @@ class FicApiService
      * Create or renew subscription using direct HTTP calls.
      *
      * This is a fallback method when SubscriptionApi is not available in the SDK.
-     *
-     * @param string $eventGroup
-     * @param string $webhookUrl
-     * @return array
      */
     private function createOrRenewSubscriptionViaHttp(string $eventGroup, string $webhookUrl): array
     {
@@ -268,7 +262,7 @@ class FicApiService
 
         if ($statusCode < 200 || $statusCode >= 300) {
             throw new \RuntimeException(
-                "FIC API returned HTTP {$statusCode}: " . ($responseData['error'] ?? 'Unknown error'),
+                "FIC API returned HTTP {$statusCode}: ".($responseData['error'] ?? 'Unknown error'),
                 $statusCode
             );
         }
@@ -288,10 +282,11 @@ class FicApiService
      * This method uses the new FIC API format with 'sink' and 'types' array
      * for subscribing to specific events like 'it.fattureincloud.webhooks.entities.clients.create'.
      *
-     * @param string|array $eventTypes Event type(s) - can be a single string or array of strings
-     * @param string $webhookUrl The webhook URL (sink)
-     * @param string|null $eventGroup Optional event group for database storage/routing
+     * @param  string|array  $eventTypes  Event type(s) - can be a single string or array of strings
+     * @param  string  $webhookUrl  The webhook URL (sink)
+     * @param  string|null  $eventGroup  Optional event group for database storage/routing
      * @return array Subscription data with keys: id, secret, expires_at
+     *
      * @throws \Exception If the API call fails
      */
     public function createOrRenewSubscriptionForEventType(
@@ -349,7 +344,7 @@ class FicApiService
 
         if ($statusCode < 200 || $statusCode >= 300) {
             throw new \RuntimeException(
-                "FIC API returned HTTP {$statusCode}: " . ($responseData['error'] ?? json_encode($responseData)),
+                "FIC API returned HTTP {$statusCode}: ".($responseData['error'] ?? json_encode($responseData)),
                 $statusCode
             );
         }
@@ -369,8 +364,9 @@ class FicApiService
     /**
      * Fetch client details by ID from FIC API.
      *
-     * @param int $clientId The FIC client ID
+     * @param  int  $clientId  The FIC client ID
      * @return array Normalized client data with keys: id, name, code, fic_created_at, fic_updated_at, raw
+     *
      * @throws \Exception If the API call fails
      */
     public function fetchClientById(int $clientId): array
@@ -396,7 +392,7 @@ class FicApiService
 
             if ($statusCode < 200 || $statusCode >= 300) {
                 throw new \RuntimeException(
-                    "FIC API returned HTTP {$statusCode} when fetching client {$clientId}: " . 
+                    "FIC API returned HTTP {$statusCode} when fetching client {$clientId}: ".
                     ($responseData['error']['message'] ?? json_encode($responseData)),
                     $statusCode
                 );
@@ -444,8 +440,9 @@ class FicApiService
     /**
      * Fetch supplier details by ID from FIC API.
      *
-     * @param int $supplierId The FIC supplier ID
+     * @param  int  $supplierId  The FIC supplier ID
      * @return array Normalized supplier data with keys: id, name, code, fic_created_at, fic_updated_at, raw
+     *
      * @throws \Exception If the API call fails
      */
     public function fetchSupplierById(int $supplierId): array
@@ -471,7 +468,7 @@ class FicApiService
 
             if ($statusCode < 200 || $statusCode >= 300) {
                 throw new \RuntimeException(
-                    "FIC API returned HTTP {$statusCode} when fetching supplier {$supplierId}: " . 
+                    "FIC API returned HTTP {$statusCode} when fetching supplier {$supplierId}: ".
                     ($responseData['error']['message'] ?? json_encode($responseData)),
                     $statusCode
                 );
@@ -519,8 +516,9 @@ class FicApiService
     /**
      * Fetch issued quote details by ID from FIC API.
      *
-     * @param int $quoteId The FIC quote ID
+     * @param  int  $quoteId  The FIC quote ID
      * @return array Normalized quote data with keys: id, number, status, total_gross, fic_date, fic_created_at, raw
+     *
      * @throws \Exception If the API call fails
      */
     public function fetchIssuedQuoteById(int $quoteId): array
@@ -531,7 +529,8 @@ class FicApiService
         $companyId = $this->account->company_id;
         $accessToken = $this->account->access_token;
 
-        $url = "{$baseUrl}/c/{$companyId}/issued_documents/quotes/{$quoteId}";
+        // Correct endpoint: /issued_documents/{id}, not /issued_documents/quotes/{id}
+        $url = "{$baseUrl}/c/{$companyId}/issued_documents/{$quoteId}";
 
         try {
             $response = $this->httpClient->request('GET', $url, [
@@ -546,7 +545,7 @@ class FicApiService
 
             if ($statusCode < 200 || $statusCode >= 300) {
                 throw new \RuntimeException(
-                    "FIC API returned HTTP {$statusCode} when fetching quote {$quoteId}: " . 
+                    "FIC API returned HTTP {$statusCode} when fetching quote {$quoteId}: ".
                     ($responseData['error']['message'] ?? json_encode($responseData)),
                     $statusCode
                 );
@@ -594,8 +593,9 @@ class FicApiService
     /**
      * Fetch issued invoice details by ID from FIC API.
      *
-     * @param int $invoiceId The FIC invoice ID
+     * @param  int  $invoiceId  The FIC invoice ID
      * @return array Normalized invoice data with keys: id, number, status, total_gross, fic_date, fic_created_at, raw
+     *
      * @throws \Exception If the API call fails
      */
     public function fetchIssuedInvoiceById(int $invoiceId): array
@@ -606,7 +606,8 @@ class FicApiService
         $companyId = $this->account->company_id;
         $accessToken = $this->account->access_token;
 
-        $url = "{$baseUrl}/c/{$companyId}/issued_documents/invoices/{$invoiceId}";
+        // Correct endpoint: /issued_documents/{id}, not /issued_documents/invoices/{id}
+        $url = "{$baseUrl}/c/{$companyId}/issued_documents/{$invoiceId}";
 
         try {
             $response = $this->httpClient->request('GET', $url, [
@@ -621,7 +622,7 @@ class FicApiService
 
             if ($statusCode < 200 || $statusCode >= 300) {
                 throw new \RuntimeException(
-                    "FIC API returned HTTP {$statusCode} when fetching invoice {$invoiceId}: " . 
+                    "FIC API returned HTTP {$statusCode} when fetching invoice {$invoiceId}: ".
                     ($responseData['error']['message'] ?? json_encode($responseData)),
                     $statusCode
                 );
@@ -672,8 +673,9 @@ class FicApiService
      * Uses SDK SuppliersApi::listSuppliers() when available (reference implementation).
      * Falls back to direct HTTP calls if SDK is not available.
      *
-     * @param array $filters Optional filters (e.g., ['page' => 1, 'per_page' => 50, 'fields' => '...', 'fieldset' => '...', 'sort' => '...', 'q' => '...'])
+     * @param  array  $filters  Optional filters (e.g., ['page' => 1, 'per_page' => 50, 'fields' => '...', 'fieldset' => '...', 'sort' => '...', 'q' => '...'])
      * @return array List of suppliers with pagination info
+     *
      * @throws \Exception If the API call fails
      */
     public function fetchSuppliersList(array $filters = []): array
@@ -691,9 +693,6 @@ class FicApiService
 
     /**
      * Fetch suppliers list using SuppliersApi (SDK method).
-     *
-     * @param array $filters
-     * @return array
      */
     private function fetchSuppliersListViaApi(array $filters = []): array
     {
@@ -777,9 +776,6 @@ class FicApiService
 
     /**
      * Fetch suppliers list using direct HTTP calls (fallback method).
-     *
-     * @param array $filters
-     * @return array
      */
     private function fetchSuppliersListViaHttp(array $filters = []): array
     {
@@ -788,7 +784,7 @@ class FicApiService
         $accessToken = $this->account->access_token;
 
         $url = "{$baseUrl}/c/{$companyId}/entities/suppliers";
-        
+
         $queryParams = array_merge([
             'page' => $filters['page'] ?? 1,
             'per_page' => $filters['per_page'] ?? 50,
@@ -808,7 +804,7 @@ class FicApiService
 
             if ($statusCode < 200 || $statusCode >= 300) {
                 throw new \RuntimeException(
-                    "FIC API returned HTTP {$statusCode} when fetching suppliers list: " . 
+                    "FIC API returned HTTP {$statusCode} when fetching suppliers list: ".
                     ($responseData['error']['message'] ?? json_encode($responseData)),
                     $statusCode
                 );
@@ -843,14 +839,14 @@ class FicApiService
     /**
      * Normalize a Supplier Model object to array format matching database structure.
      *
-     * @param mixed $supplier Supplier Model object from SDK
+     * @param  mixed  $supplier  Supplier Model object from SDK
      * @return array Normalized supplier data
      */
     private function normalizeSupplierFromModel($supplier): array
     {
         // Extract data using getter methods if available, otherwise convert to array
         $data = [];
-        
+
         if (method_exists($supplier, 'toArray')) {
             $data = $supplier->toArray();
         } elseif (method_exists($supplier, 'jsonSerialize')) {
@@ -882,22 +878,102 @@ class FicApiService
     }
 
     /**
-     * Fetch list of clients from FIC API.
-     *
-     * @param array $filters Optional filters (e.g., ['page' => 1, 'per_page' => 50])
-     * @return array List of clients with pagination info
-     * @throws \Exception If the API call fails
+     * Fetch invoices list using IssuedDocumentsApi (SDK method).
      */
-    public function fetchClientsList(array $filters = []): array
+    private function fetchInvoicesListViaApi(array $filters = []): array
     {
-        $this->initializeSdk();
+        $issuedDocumentsApi = new \FattureInCloud\Api\IssuedDocumentsApi($this->httpClient, $this->config);
 
+        $companyId = $this->account->company_id;
+        $type = 'invoice';
+        $fields = $filters['fields'] ?? null;
+        $fieldset = $filters['fieldset'] ?? null;
+        $sort = $filters['sort'] ?? null;
+        $page = $filters['page'] ?? 1;
+        $perPage = $filters['per_page'] ?? 50;
+        $q = $filters['q'] ?? null;
+        $inclusive = $filters['inclusive'] ?? null;
+
+        try {
+            $response = $issuedDocumentsApi->listIssuedDocuments(
+                $companyId,
+                $type,
+                $fields,
+                $fieldset,
+                $sort,
+                $page,
+                $perPage,
+                $q,
+                $inclusive
+            );
+
+            // Extract data from Response object
+            $invoices = [];
+            $invoiceData = $response->getData();
+
+            if ($invoiceData !== null) {
+                if (is_array($invoiceData)) {
+                    // If data is directly an array of IssuedDocument objects
+                    foreach ($invoiceData as $invoice) {
+                        $invoices[] = $this->normalizeIssuedDocumentFromModel($invoice);
+                    }
+                } else {
+                    // If data is a single IssuedDocument object
+                    $invoices[] = $this->normalizeIssuedDocumentFromModel($invoiceData);
+                }
+            }
+
+            // Build response array matching HTTP response format
+            return [
+                'data' => $invoices,
+                'current_page' => method_exists($response, 'getCurrentPage') ? $response->getCurrentPage() : $page,
+                'per_page' => method_exists($response, 'getPerPage') ? $response->getPerPage() : $perPage,
+                'total' => method_exists($response, 'getTotal') ? $response->getTotal() : count($invoices),
+                'last_page' => method_exists($response, 'getLastPage') ? $response->getLastPage() : 1,
+                'from' => method_exists($response, 'getFrom') ? $response->getFrom() : (($page - 1) * $perPage + 1),
+                'to' => method_exists($response, 'getTo') ? $response->getTo() : min($page * $perPage, method_exists($response, 'getTotal') ? $response->getTotal() : count($invoices)),
+                'first_page_url' => method_exists($response, 'getFirstPageUrl') ? $response->getFirstPageUrl() : null,
+                'last_page_url' => method_exists($response, 'getLastPageUrl') ? $response->getLastPageUrl() : null,
+                'next_page_url' => method_exists($response, 'getNextPageUrl') ? $response->getNextPageUrl() : null,
+                'prev_page_url' => method_exists($response, 'getPrevPageUrl') ? $response->getPrevPageUrl() : null,
+                'path' => method_exists($response, 'getPath') ? $response->getPath() : null,
+            ];
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching invoices list via SDK', [
+                'account_id' => $this->account->id,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch invoices list from FIC API via SDK (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching invoices list via SDK', [
+                'account_id' => $this->account->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Fetch invoices list using direct HTTP calls (fallback method).
+     */
+    private function fetchInvoicesListViaHttp(array $filters = []): array
+    {
         $baseUrl = 'https://api-v2.fattureincloud.it';
         $companyId = $this->account->company_id;
         $accessToken = $this->account->access_token;
 
-        $url = "{$baseUrl}/c/{$companyId}/entities/clients";
-        
+        $url = "{$baseUrl}/c/{$companyId}/issued_documents/invoices";
+
         $queryParams = array_merge([
             'page' => $filters['page'] ?? 1,
             'per_page' => $filters['per_page'] ?? 50,
@@ -917,7 +993,265 @@ class FicApiService
 
             if ($statusCode < 200 || $statusCode >= 300) {
                 throw new \RuntimeException(
-                    "FIC API returned HTTP {$statusCode} when fetching clients list: " . 
+                    "FIC API returned HTTP {$statusCode} when fetching invoices list: ".
+                    ($responseData['error']['message'] ?? json_encode($responseData)),
+                    $statusCode
+                );
+            }
+
+            return $responseData['data'] ?? $responseData;
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching invoices list', [
+                'account_id' => $this->account->id,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch invoices list from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching invoices list', [
+                'account_id' => $this->account->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Fetch quotes list using IssuedDocumentsApi (SDK method).
+     */
+    private function fetchQuotesListViaApi(array $filters = []): array
+    {
+        $issuedDocumentsApi = new \FattureInCloud\Api\IssuedDocumentsApi($this->httpClient, $this->config);
+
+        $companyId = $this->account->company_id;
+        $type = 'quote';
+        $fields = $filters['fields'] ?? null;
+        $fieldset = $filters['fieldset'] ?? null;
+        $sort = $filters['sort'] ?? null;
+        $page = $filters['page'] ?? 1;
+        $perPage = $filters['per_page'] ?? 50;
+        $q = $filters['q'] ?? null;
+        $inclusive = $filters['inclusive'] ?? null;
+
+        try {
+            $response = $issuedDocumentsApi->listIssuedDocuments(
+                $companyId,
+                $type,
+                $fields,
+                $fieldset,
+                $sort,
+                $page,
+                $perPage,
+                $q,
+                $inclusive
+            );
+
+            // Extract data from Response object
+            $quotes = [];
+            $quoteData = $response->getData();
+
+            if ($quoteData !== null) {
+                if (is_array($quoteData)) {
+                    // If data is directly an array of IssuedDocument objects
+                    foreach ($quoteData as $quote) {
+                        $quotes[] = $this->normalizeIssuedDocumentFromModel($quote);
+                    }
+                } else {
+                    // If data is a single IssuedDocument object
+                    $quotes[] = $this->normalizeIssuedDocumentFromModel($quoteData);
+                }
+            }
+
+            // Build response array matching HTTP response format
+            return [
+                'data' => $quotes,
+                'current_page' => method_exists($response, 'getCurrentPage') ? $response->getCurrentPage() : $page,
+                'per_page' => method_exists($response, 'getPerPage') ? $response->getPerPage() : $perPage,
+                'total' => method_exists($response, 'getTotal') ? $response->getTotal() : count($quotes),
+                'last_page' => method_exists($response, 'getLastPage') ? $response->getLastPage() : 1,
+                'from' => method_exists($response, 'getFrom') ? $response->getFrom() : (($page - 1) * $perPage + 1),
+                'to' => method_exists($response, 'getTo') ? $response->getTo() : min($page * $perPage, method_exists($response, 'getTotal') ? $response->getTotal() : count($quotes)),
+                'first_page_url' => method_exists($response, 'getFirstPageUrl') ? $response->getFirstPageUrl() : null,
+                'last_page_url' => method_exists($response, 'getLastPageUrl') ? $response->getLastPageUrl() : null,
+                'next_page_url' => method_exists($response, 'getNextPageUrl') ? $response->getNextPageUrl() : null,
+                'prev_page_url' => method_exists($response, 'getPrevPageUrl') ? $response->getPrevPageUrl() : null,
+                'path' => method_exists($response, 'getPath') ? $response->getPath() : null,
+            ];
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching quotes list via SDK', [
+                'account_id' => $this->account->id,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch quotes list from FIC API via SDK (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching quotes list via SDK', [
+                'account_id' => $this->account->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Fetch quotes list using direct HTTP calls (fallback method).
+     */
+    private function fetchQuotesListViaHttp(array $filters = []): array
+    {
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/issued_documents/quotes";
+
+        $queryParams = array_merge([
+            'page' => $filters['page'] ?? 1,
+            'per_page' => $filters['per_page'] ?? 50,
+        ], $filters);
+
+        try {
+            $response = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+                'query' => $queryParams,
+            ]);
+
+            $statusCode = $response->getStatusCode();
+            $responseData = json_decode($response->getBody()->getContents(), true);
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                throw new \RuntimeException(
+                    "FIC API returned HTTP {$statusCode} when fetching quotes list: ".
+                    ($responseData['error']['message'] ?? json_encode($responseData)),
+                    $statusCode
+                );
+            }
+
+            return $responseData['data'] ?? $responseData;
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching quotes list', [
+                'account_id' => $this->account->id,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch quotes list from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching quotes list', [
+                'account_id' => $this->account->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Normalize an IssuedDocument Model object to array format matching database structure.
+     *
+     * @param  mixed  $document  IssuedDocument Model object from SDK
+     * @return array Normalized document data
+     */
+    private function normalizeIssuedDocumentFromModel($document): array
+    {
+        // Extract data using getter methods if available, otherwise convert to array
+        $data = [];
+
+        if (method_exists($document, 'toArray')) {
+            $data = $document->toArray();
+        } elseif (method_exists($document, 'jsonSerialize')) {
+            $data = $document->jsonSerialize();
+        } else {
+            // Try to get individual properties via getters
+            $data = [
+                'id' => method_exists($document, 'getId') ? $document->getId() : null,
+                'number' => method_exists($document, 'getNumber') ? $document->getNumber() : null,
+                'status' => method_exists($document, 'getStatus') ? $document->getStatus() : null,
+                'date' => method_exists($document, 'getDate') ? $document->getDate() : null,
+                'created_at' => method_exists($document, 'getCreatedAt') ? $document->getCreatedAt() : null,
+            ];
+        }
+
+        // Ensure we have the full raw data (convert object to array if needed)
+        $raw = is_array($data) ? $data : json_decode(json_encode($data), true);
+
+        // Normalize to match database structure
+        return [
+            'id' => $raw['id'] ?? null,
+            'number' => $raw['number'] ?? null,
+            'status' => $raw['status'] ?? null,
+            'total_gross' => $raw['amount_net'] ?? $raw['total'] ?? $raw['total_gross'] ?? null,
+            'fic_date' => isset($raw['date']) ? new \Carbon\Carbon($raw['date']) : null,
+            'fic_created_at' => isset($raw['created_at']) ? new \Carbon\Carbon($raw['created_at']) : null,
+            'raw' => $raw,
+        ];
+    }
+
+    /**
+     * Fetch list of clients from FIC API.
+     *
+     * @param  array  $filters  Optional filters (e.g., ['page' => 1, 'per_page' => 50])
+     * @return array List of clients with pagination info
+     *
+     * @throws \Exception If the API call fails
+     */
+    public function fetchClientsList(array $filters = []): array
+    {
+        $this->initializeSdk();
+
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/entities/clients";
+
+        $queryParams = array_merge([
+            'page' => $filters['page'] ?? 1,
+            'per_page' => $filters['per_page'] ?? 50,
+        ], $filters);
+
+        try {
+            $response = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+                'query' => $queryParams,
+            ]);
+
+            $statusCode = $response->getStatusCode();
+            $responseData = json_decode($response->getBody()->getContents(), true);
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                throw new \RuntimeException(
+                    "FIC API returned HTTP {$statusCode} when fetching clients list: ".
                     ($responseData['error']['message'] ?? json_encode($responseData)),
                     $statusCode
                 );
@@ -952,143 +1286,56 @@ class FicApiService
     /**
      * Fetch list of issued quotes from FIC API.
      *
-     * @param array $filters Optional filters (e.g., ['page' => 1, 'per_page' => 50])
+     * Uses SDK IssuedDocumentsApi::listIssuedDocuments() when available (reference implementation).
+     * Falls back to direct HTTP calls if SDK is not available.
+     *
+     * @param  array  $filters  Optional filters (e.g., ['page' => 1, 'per_page' => 50, 'fields' => '...', 'fieldset' => '...', 'sort' => '...', 'q' => '...'])
      * @return array List of quotes with pagination info
+     *
      * @throws \Exception If the API call fails
      */
     public function fetchQuotesList(array $filters = []): array
     {
         $this->initializeSdk();
 
-        $baseUrl = 'https://api-v2.fattureincloud.it';
-        $companyId = $this->account->company_id;
-        $accessToken = $this->account->access_token;
-
-        $url = "{$baseUrl}/c/{$companyId}/issued_documents/quotes";
-        
-        $queryParams = array_merge([
-            'page' => $filters['page'] ?? 1,
-            'per_page' => $filters['per_page'] ?? 50,
-        ], $filters);
-
-        try {
-            $response = $this->httpClient->request('GET', $url, [
-                'headers' => [
-                    'Authorization' => "Bearer {$accessToken}",
-                    'Accept' => 'application/json',
-                ],
-                'query' => $queryParams,
-            ]);
-
-            $statusCode = $response->getStatusCode();
-            $responseData = json_decode($response->getBody()->getContents(), true);
-
-            if ($statusCode < 200 || $statusCode >= 300) {
-                throw new \RuntimeException(
-                    "FIC API returned HTTP {$statusCode} when fetching quotes list: " . 
-                    ($responseData['error']['message'] ?? json_encode($responseData)),
-                    $statusCode
-                );
-            }
-
-            return $responseData['data'] ?? $responseData;
-        } catch (\GuzzleHttp\Exception\ClientException $e) {
-            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
-            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
-
-            Log::error('FIC API: Error fetching quotes list', [
-                'account_id' => $this->account->id,
-                'status_code' => $statusCode,
-                'response' => $responseBody,
-            ]);
-
-            throw new \RuntimeException(
-                "Failed to fetch quotes list from FIC API (HTTP {$statusCode})",
-                $statusCode,
-                $e
-            );
-        } catch (\Exception $e) {
-            Log::error('FIC API: Unexpected error fetching quotes list', [
-                'account_id' => $this->account->id,
-                'error' => $e->getMessage(),
-            ]);
-
-            throw $e;
+        // Try to use IssuedDocumentsApi if available
+        if (class_exists(\FattureInCloud\Api\IssuedDocumentsApi::class)) {
+            return $this->fetchQuotesListViaApi($filters);
         }
+
+        // Fallback to direct HTTP call
+        return $this->fetchQuotesListViaHttp($filters);
     }
 
     /**
      * Fetch list of issued invoices from FIC API.
      *
-     * @param array $filters Optional filters (e.g., ['page' => 1, 'per_page' => 50])
+     * Uses SDK IssuedDocumentsApi::listIssuedDocuments() when available (reference implementation).
+     * Falls back to direct HTTP calls if SDK is not available.
+     *
+     * @param  array  $filters  Optional filters (e.g., ['page' => 1, 'per_page' => 50, 'fields' => '...', 'fieldset' => '...', 'sort' => '...', 'q' => '...'])
      * @return array List of invoices with pagination info
+     *
      * @throws \Exception If the API call fails
      */
     public function fetchInvoicesList(array $filters = []): array
     {
         $this->initializeSdk();
 
-        $baseUrl = 'https://api-v2.fattureincloud.it';
-        $companyId = $this->account->company_id;
-        $accessToken = $this->account->access_token;
-
-        $url = "{$baseUrl}/c/{$companyId}/issued_documents/invoices";
-        
-        $queryParams = array_merge([
-            'page' => $filters['page'] ?? 1,
-            'per_page' => $filters['per_page'] ?? 50,
-        ], $filters);
-
-        try {
-            $response = $this->httpClient->request('GET', $url, [
-                'headers' => [
-                    'Authorization' => "Bearer {$accessToken}",
-                    'Accept' => 'application/json',
-                ],
-                'query' => $queryParams,
-            ]);
-
-            $statusCode = $response->getStatusCode();
-            $responseData = json_decode($response->getBody()->getContents(), true);
-
-            if ($statusCode < 200 || $statusCode >= 300) {
-                throw new \RuntimeException(
-                    "FIC API returned HTTP {$statusCode} when fetching invoices list: " . 
-                    ($responseData['error']['message'] ?? json_encode($responseData)),
-                    $statusCode
-                );
-            }
-
-            return $responseData['data'] ?? $responseData;
-        } catch (\GuzzleHttp\Exception\ClientException $e) {
-            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
-            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
-
-            Log::error('FIC API: Error fetching invoices list', [
-                'account_id' => $this->account->id,
-                'status_code' => $statusCode,
-                'response' => $responseBody,
-            ]);
-
-            throw new \RuntimeException(
-                "Failed to fetch invoices list from FIC API (HTTP {$statusCode})",
-                $statusCode,
-                $e
-            );
-        } catch (\Exception $e) {
-            Log::error('FIC API: Unexpected error fetching invoices list', [
-                'account_id' => $this->account->id,
-                'error' => $e->getMessage(),
-            ]);
-
-            throw $e;
+        // Try to use IssuedDocumentsApi if available
+        if (class_exists(\FattureInCloud\Api\IssuedDocumentsApi::class)) {
+            return $this->fetchInvoicesListViaApi($filters);
         }
+
+        // Fallback to direct HTTP call
+        return $this->fetchInvoicesListViaHttp($filters);
     }
 
     /**
      * Fetch list of webhook subscriptions from FIC API.
      *
      * @return array List of subscriptions with their details
+     *
      * @throws \Exception If the API call fails
      */
     public function fetchSubscriptions(): array
@@ -1114,7 +1361,7 @@ class FicApiService
 
             if ($statusCode < 200 || $statusCode >= 300) {
                 throw new \RuntimeException(
-                    "FIC API returned HTTP {$statusCode} when fetching subscriptions: " . 
+                    "FIC API returned HTTP {$statusCode} when fetching subscriptions: ".
                     ($responseData['error']['message'] ?? json_encode($responseData)),
                     $statusCode
                 );
@@ -1149,8 +1396,9 @@ class FicApiService
     /**
      * Get a specific subscription by ID from FIC API.
      *
-     * @param string $subscriptionId The FIC subscription ID
+     * @param  string  $subscriptionId  The FIC subscription ID
      * @return array Subscription details
+     *
      * @throws \Exception If the API call fails
      */
     public function getSubscription(string $subscriptionId): array
@@ -1176,7 +1424,7 @@ class FicApiService
 
             if ($statusCode < 200 || $statusCode >= 300) {
                 throw new \RuntimeException(
-                    "FIC API returned HTTP {$statusCode} when fetching subscription {$subscriptionId}: " . 
+                    "FIC API returned HTTP {$statusCode} when fetching subscription {$subscriptionId}: ".
                     ($responseData['error']['message'] ?? json_encode($responseData)),
                     $statusCode
                 );
@@ -1213,10 +1461,11 @@ class FicApiService
     /**
      * Update an existing subscription by FIC subscription ID.
      *
-     * @param string $ficSubscriptionId The FIC subscription ID (e.g., 'SUB3098')
-     * @param string $webhookUrl The new webhook URL (sink)
-     * @param array|null $eventTypes Optional: new event types (if null, keeps existing)
+     * @param  string  $ficSubscriptionId  The FIC subscription ID (e.g., 'SUB3098')
+     * @param  string  $webhookUrl  The new webhook URL (sink)
+     * @param  array|null  $eventTypes  Optional: new event types (if null, keeps existing)
      * @return array Subscription data with keys: id, verified, types, sink
+     *
      * @throws \Exception If the API call fails
      */
     public function updateSubscriptionById(
@@ -1243,21 +1492,21 @@ class FicApiService
             ]);
             $currentData = json_decode($getResponse->getBody()->getContents(), true);
             $currentSubscription = $currentData['data'] ?? null;
-            
-            if (!$currentSubscription) {
-                throw new \RuntimeException("Could not fetch current subscription data");
+
+            if (! $currentSubscription) {
+                throw new \RuntimeException('Could not fetch current subscription data');
             }
         } catch (\Exception $e) {
             Log::error('FIC API: Could not fetch current subscription before update', [
                 'subscription_id' => $ficSubscriptionId,
                 'error' => $e->getMessage(),
             ]);
-            throw new \RuntimeException("Failed to fetch current subscription: " . $e->getMessage());
+            throw new \RuntimeException('Failed to fetch current subscription: '.$e->getMessage());
         }
 
         // Use provided event types or keep existing ones exactly as they are
         $typesToUse = $eventTypes ?? ($currentSubscription['types'] ?? []);
-        
+
         // Build payload - only include fields we want to update
         // According to FIC docs, when updating sink, we should include existing types
         $payload = [
@@ -1314,6 +1563,4 @@ class FicApiService
 
         return $data;
     }
-
 }
-
