@@ -7,6 +7,7 @@ use App\Models\FicClient;
 use App\Models\FicEvent;
 use App\Models\FicInvoice;
 use App\Models\FicQuote;
+use App\Models\FicSupplier;
 use App\Services\FicApiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -54,6 +55,7 @@ class FicSyncController extends Controller
 
             $stats = [
                 'clients' => ['created' => 0, 'updated' => 0],
+                'suppliers' => ['created' => 0, 'updated' => 0],
                 'quotes' => ['created' => 0, 'updated' => 0],
                 'invoices' => ['created' => 0, 'updated' => 0],
             ];
@@ -92,6 +94,45 @@ class FicSyncController extends Controller
                 }
             } catch (\Exception $e) {
                 Log::error('FIC Sync: Error syncing clients', [
+                    'account_id' => $account->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            // Sync suppliers
+            try {
+                $suppliersData = $apiService->fetchSuppliersList(['per_page' => 100]);
+                // fetchSuppliersList returns the data array directly, not wrapped in ['data']
+                $suppliers = is_array($suppliersData) ? $suppliersData : [];
+
+                foreach ($suppliers as $supplierData) {
+                    $supplier = FicSupplier::updateOrCreate(
+                        [
+                            'fic_account_id' => $account->id,
+                            'fic_supplier_id' => $supplierData['id'],
+                        ],
+                        [
+                            'name' => $supplierData['name'] ?? null,
+                            'code' => $supplierData['code'] ?? null,
+                            'vat_number' => $supplierData['vat_number'] ?? null,
+                            'fic_created_at' => isset($supplierData['created_at']) 
+                                ? Carbon::parse($supplierData['created_at']) 
+                                : null,
+                            'fic_updated_at' => isset($supplierData['updated_at']) 
+                                ? Carbon::parse($supplierData['updated_at']) 
+                                : null,
+                            'raw' => $supplierData,
+                        ]
+                    );
+
+                    if ($supplier->wasRecentlyCreated) {
+                        $stats['suppliers']['created']++;
+                    } else {
+                        $stats['suppliers']['updated']++;
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::error('FIC Sync: Error syncing suppliers', [
                     'account_id' => $account->id,
                     'error' => $e->getMessage(),
                 ]);
@@ -616,6 +657,57 @@ class FicSyncController extends Controller
 
             return response()->json([
                 'error' => 'Failed to fetch quotes: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Get list of synced suppliers.
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function suppliers(Request $request): JsonResponse
+    {
+        try {
+            $perPage = (int) ($request->input('per_page', 25));
+            $perPage = min(max($perPage, 1), 100);
+
+            $account = FicAccount::where('status', 'active')
+                ->orWhereNull('status')
+                ->first();
+
+            if (!$account) {
+                $account = FicAccount::first();
+            }
+
+            if (!$account) {
+                return response()->json([
+                    'data' => [],
+                    'meta' => ['total' => 0],
+                ]);
+            }
+
+            $suppliers = FicSupplier::where('fic_account_id', $account->id)
+                ->orderBy('updated_at', 'desc')
+                ->paginate($perPage);
+
+            return response()->json([
+                'data' => $suppliers->items(),
+                'meta' => [
+                    'current_page' => $suppliers->currentPage(),
+                    'last_page' => $suppliers->lastPage(),
+                    'per_page' => $suppliers->perPage(),
+                    'total' => $suppliers->total(),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('FIC Sync: Error fetching suppliers', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to fetch suppliers: ' . $e->getMessage(),
             ], 500);
         }
     }

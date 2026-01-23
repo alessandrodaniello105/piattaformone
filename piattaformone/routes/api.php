@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\FattureInCloudOAuthController;
+use App\Http\Controllers\FicDocumentController;
 use App\Http\Controllers\FicSubscriptionController;
 use App\Http\Controllers\FicSyncController;
 use App\Http\Controllers\FicWebhookController;
@@ -63,6 +64,8 @@ Route::prefix('fic')->group(function () {
     // Synced data endpoints
     Route::get('/clients', [FicSyncController::class, 'clients'])
         ->name('fic.clients');
+    Route::get('/suppliers', [FicSyncController::class, 'suppliers'])
+        ->name('fic.suppliers');
     Route::get('/quotes', [FicSyncController::class, 'quotes'])
         ->name('fic.quotes');
     Route::get('/invoices', [FicSyncController::class, 'invoices'])
@@ -73,6 +76,22 @@ Route::prefix('fic')->group(function () {
 Route::prefix('fic/subscriptions')->group(function () {
     Route::get('/accounts', [FicSubscriptionController::class, 'accounts'])
         ->name('fic.subscriptions.accounts');
+    Route::get('/', [FicSubscriptionController::class, 'list'])
+        ->name('fic.subscriptions.list');
     Route::post('/', [FicSubscriptionController::class, 'store'])
         ->name('fic.subscriptions.store');
+});
+
+// Fatture in Cloud Document generation endpoints
+Route::prefix('fic/documents')->group(function () {
+    Route::get('/data', [FicDocumentController::class, 'getData'])
+        ->name('fic.documents.data');
+    Route::get('/resource', [FicDocumentController::class, 'getResourceData'])
+        ->name('fic.documents.resource');
+    Route::post('/extract-variables', [FicDocumentController::class, 'extractVariables'])
+        ->name('fic.documents.extract-variables');
+    Route::post('/compile', [FicDocumentController::class, 'compile'])
+        ->name('fic.documents.compile');
+    Route::post('/compile-mapping', [FicDocumentController::class, 'compileWithMapping'])
+        ->name('fic.documents.compile-mapping');
 });

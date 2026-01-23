@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import FormSection from '@/Components/FormSection.vue';
 import InputLabel from '@/Components/InputLabel.vue';
@@ -26,6 +26,14 @@ const error = ref(null);
 const success = ref(null);
 const successData = ref(null);
 
+// Tab state
+const activeTab = ref('create');
+
+// Subscriptions list state
+const subscriptions = ref([]);
+const loadingSubscriptions = ref(false);
+const subscriptionsError = ref(null);
+
 // Common event types for quick selection
 const commonEventTypes = [
     'it.fattureincloud.webhooks.entities.clients.create',
@@ -41,6 +49,34 @@ const commonEventTypes = [
     'it.fattureincloud.webhooks.received_documents.create',
     'it.fattureincloud.webhooks.received_documents.update',
 ];
+
+// Fetch subscriptions
+const fetchSubscriptions = async (accountId) => {
+    if (!accountId) {
+        subscriptions.value = [];
+        return;
+    }
+
+    try {
+        loadingSubscriptions.value = true;
+        subscriptionsError.value = null;
+        const response = await window.axios.get('/api/fic/subscriptions', {
+            params: { account_id: accountId },
+        });
+        if (response.data.success) {
+            subscriptions.value = response.data.data || [];
+        } else {
+            subscriptionsError.value = response.data.error || 'Errore nel caricamento delle subscriptions';
+            subscriptions.value = [];
+        }
+    } catch (err) {
+        console.error('Error fetching subscriptions:', err);
+        subscriptionsError.value = err.response?.data?.error || 'Errore nel caricamento delle subscriptions';
+        subscriptions.value = [];
+    } finally {
+        loadingSubscriptions.value = false;
+    }
+};
 
 // Fetch accounts on mount
 onMounted(async () => {
@@ -58,6 +94,8 @@ const fetchAccounts = async () => {
             if (accounts.value.length > 0 && !form.value.account_id) {
                 form.value.account_id = accounts.value[0].id;
                 updateSinkUrl();
+                // Fetch subscriptions to check which event types are already subscribed
+                await fetchSubscriptions(form.value.account_id);
             }
         }
     } catch (err) {
@@ -130,6 +168,33 @@ const addCommonEventType = (eventType) => {
     }
 };
 
+// Change tab
+const changeTab = (tabId) => {
+    activeTab.value = tabId;
+    // Fetch subscriptions when switching to list tab or when we need to check subscribed types
+    if (form.value.account_id) {
+        fetchSubscriptions(form.value.account_id);
+    }
+};
+
+// Get all subscribed event types from subscriptions list
+const subscribedEventTypes = computed(() => {
+    const subscribed = new Set();
+    subscriptions.value.forEach(subscription => {
+        if (subscription.types && Array.isArray(subscription.types)) {
+            subscription.types.forEach(type => {
+                subscribed.add(type);
+            });
+        }
+    });
+    return subscribed;
+});
+
+// Check if an event type is already subscribed
+const isEventTypeSubscribed = (eventType) => {
+    return subscribedEventTypes.value.has(eventType);
+};
+
 // Submit form
 const submit = async () => {
     error.value = null;
@@ -170,6 +235,11 @@ const submit = async () => {
             success.value = 'Subscription creata con successo!';
             successData.value = response.data.data.subscription;
             
+            // Refresh subscriptions list if on list tab
+            if (activeTab.value === 'list') {
+                await fetchSubscriptions(form.value.account_id);
+            }
+
             // Reset form after 3 seconds
             setTimeout(() => {
                 form.value = {
@@ -200,17 +270,47 @@ const submit = async () => {
 </script>
 
 <template>
-    <AppLayout title="Crea Subscription FIC">
+    <AppLayout title="Gestione Subscription FIC">
         <template #header>
             <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                Crea Webhook Subscription
+                Gestione Webhook Subscriptions
             </h2>
         </template>
 
         <div class="py-12">
-            <div class="max-w-4xl mx-auto sm:px-6 lg:px-8">
+            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
                 <div class="bg-white overflow-hidden shadow-xl sm:rounded-lg">
-                    <FormSection @submitted="submit">
+                    <!-- Tabs -->
+                    <div class="border-b border-gray-200">
+                        <nav class="flex -mb-px">
+                            <button
+                                @click="changeTab('create')"
+                                :class="[
+                                    'py-4 px-6 text-sm font-medium border-b-2 transition-colors',
+                                    activeTab === 'create'
+                                        ? 'border-indigo-500 text-indigo-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                ]"
+                            >
+                                Crea Subscription
+                            </button>
+                            <button
+                                @click="changeTab('list')"
+                                :class="[
+                                    'py-4 px-6 text-sm font-medium border-b-2 transition-colors',
+                                    activeTab === 'list'
+                                        ? 'border-indigo-500 text-indigo-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                ]"
+                            >
+                                Lista Subscriptions
+                            </button>
+                        </nav>
+                    </div>
+
+                    <!-- Create Tab Content -->
+                    <div v-if="activeTab === 'create'">
+                        <FormSection @submitted="submit">
                         <template #title>
                             Nuova Subscription
                         </template>
@@ -242,7 +342,7 @@ const submit = async () => {
                                 <select
                                     id="account_id"
                                     v-model="form.account_id"
-                                    @change="updateSinkUrl"
+                                    @change="() => { updateSinkUrl(); fetchSubscriptions(form.account_id); }"
                                     class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
                                     :disabled="loadingAccounts"
                                 >
@@ -258,6 +358,30 @@ const submit = async () => {
                                 <InputError :message="null" class="mt-2" />
                                 <p class="mt-1 text-xs text-gray-500">
                                     Seleziona l'account Fatture in Cloud per cui creare la subscription
+                                </p>
+                            </div>
+
+                            <!-- Account Selection for List Tab -->
+                            <div v-if="activeTab === 'list'" class="col-span-6 sm:col-span-4">
+                                <InputLabel for="list_account_id" value="Account FIC" />
+                                <select
+                                    id="list_account_id"
+                                    v-model="form.account_id"
+                                    @change="fetchSubscriptions(form.account_id)"
+                                    class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
+                                    :disabled="loadingAccounts"
+                                >
+                                    <option value="">Seleziona un account</option>
+                                    <option
+                                        v-for="account in accounts"
+                                        :key="account.id"
+                                        :value="account.id"
+                                    >
+                                        {{ account.name || account.company_name }} (ID: {{ account.company_id }})
+                                    </option>
+                                </select>
+                                <p class="mt-1 text-xs text-gray-500">
+                                    Seleziona l'account Fatture in Cloud per visualizzare le subscriptions
                                 </p>
                             </div>
 
@@ -323,11 +447,22 @@ const submit = async () => {
                                         :key="eventType"
                                         type="button"
                                         @click="addCommonEventType(eventType)"
-                                        class="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-md text-gray-700"
+                                        :disabled="isEventTypeSubscribed(eventType)"
+                                        :class="[
+                                            'px-3 py-1 text-xs rounded-md transition-colors',
+                                            isEventTypeSubscribed(eventType)
+                                                ? 'bg-gray-50 text-gray-400 cursor-not-allowed'
+                                                : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                                        ]"
+                                        :title="isEventTypeSubscribed(eventType) ? 'Questo tipo di evento è già sottoscritto' : ''"
                                     >
-                                        {{ eventType.split('.').pop() }}
+                                        {{ eventType.split('.').splice(-2).join(' ') }}
+                                        <span v-if="isEventTypeSubscribed(eventType)" class="ml-1">✓</span>
                                     </button>
                                 </div>
+                                <p class="mt-1 text-xs text-gray-500">
+                                    I tipi di evento già sottoscritti sono disabilitati
+                                </p>
                             </div>
 
                             <!-- Verification Method -->
@@ -380,6 +515,78 @@ const submit = async () => {
                             </PrimaryButton>
                         </template>
                     </FormSection>
+                    </div>
+
+                    <!-- List Tab Content -->
+                    <div v-if="activeTab === 'list'" class="p-6">
+                        <!-- Loading State -->
+                        <div v-if="loadingSubscriptions" class="flex items-center justify-center py-12">
+                            <svg class="animate-spin h-8 w-8 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        </div>
+
+                        <!-- Error State -->
+                        <div v-else-if="subscriptionsError" class="p-4 bg-red-50 border border-red-200 rounded-md">
+                            <p class="text-sm text-red-800">{{ subscriptionsError }}</p>
+                        </div>
+
+                        <!-- Empty State -->
+                        <div v-else-if="!form.account_id" class="text-center py-12">
+                            <p class="text-gray-500">Seleziona un account per visualizzare le subscriptions</p>
+                        </div>
+
+                        <div v-else-if="subscriptions.length === 0" class="text-center py-12">
+                            <p class="text-gray-500">Nessuna subscription trovata per questo account</p>
+                        </div>
+
+                        <!-- Subscriptions Table -->
+                        <div v-else class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sink URL</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Verificata</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipi di Evento</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr v-for="subscription in subscriptions" :key="subscription.id" class="hover:bg-gray-50">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ subscription.id }}</td>
+                                        <td class="px-6 py-4 text-sm text-gray-500">
+                                            <a :href="subscription.sink" target="_blank" class="text-indigo-600 hover:text-indigo-800 break-all">
+                                                {{ subscription.sink }}
+                                            </a>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span :class="[
+                                                'px-2 py-1 text-xs font-semibold rounded-full',
+                                                subscription.verified
+                                                    ? 'bg-green-100 text-green-800'
+                                                    : 'bg-yellow-100 text-yellow-800'
+                                            ]">
+                                                {{ subscription.verified ? 'Verificata' : 'Non verificata' }}
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 text-sm text-gray-500">
+                                            <div class="flex flex-wrap gap-1">
+                                                <span
+                                                    v-for="(type, index) in subscription.types"
+                                                    :key="index"
+                                                    class="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded"
+                                                >
+                                                    {{ type }}
+                                                </span>
+                                                <span v-if="subscription.types.length === 0" class="text-gray-400">Nessun tipo</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

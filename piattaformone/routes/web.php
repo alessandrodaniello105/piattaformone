@@ -48,4 +48,7 @@ Route::middleware([
     Route::get('/fic/data', function () {
         return Inertia::render('Fic/SyncedData');
     })->name('fic.data');
+
+    Route::get('/fic/documents/generate', [App\Http\Controllers\FicDocumentController::class, 'index'])
+        ->name('fic.documents.generate');
 });

@@ -268,4 +268,163 @@ class FicSubscriptionController extends Controller
             'data' => $accounts,
         ]);
     }
+
+    /**
+     * List webhook subscriptions using the Fatture in Cloud PHP SDK.
+     *
+     * Fetches all active webhook subscriptions for the specified account
+     * using the WebhooksApi::listWebhooksSubscriptions() method.
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function list(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'account_id' => 'required|integer|exists:fic_accounts,id',
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        }
+
+        $accountId = $validated['account_id'];
+
+        try {
+            // Find the account
+            $account = FicAccount::findOrFail($accountId);
+
+            // Check if account has access token
+            if (empty($account->access_token)) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Account has no access token. Please connect the account first.',
+                ], 400);
+            }
+
+            // Initialize SDK configuration
+            $config = Configuration::getDefaultConfiguration();
+            $config->setAccessToken($account->access_token);
+
+            // Create HTTP client
+            $httpClient = new Client([
+                'timeout' => 30.0,
+                'headers' => [
+                    'Accept' => 'application/json',
+                    'Content-Type' => 'application/json',
+                ],
+            ]);
+
+            // Initialize WebhooksApi
+            $webhooksApi = new WebhooksApi($httpClient, $config);
+
+            // List subscriptions using SDK
+            $result = $webhooksApi->listWebhooksSubscriptions($account->company_id);
+
+            // Extract subscriptions data from response
+            $subscriptionsData = $result->getData();
+            $subscriptions = [];
+
+            if ($subscriptionsData !== null) {
+                // Handle both single object and array
+                $subscriptionsArray = is_array($subscriptionsData) ? $subscriptionsData : [$subscriptionsData];
+
+                foreach ($subscriptionsArray as $subscription) {
+                    // Extract types - handle both array of strings and array of EventType objects
+                    $types = [];
+                    if (method_exists($subscription, 'getTypes')) {
+                        $typesData = $subscription->getTypes();
+                        if (is_array($typesData)) {
+                            foreach ($typesData as $type) {
+                                // If it's a string, use it directly; if it's an object, try to get its value
+                                if (is_string($type)) {
+                                    $types[] = $type;
+                                } elseif (is_object($type) && method_exists($type, 'getValue')) {
+                                    $types[] = $type->getValue();
+                                } elseif (is_object($type) && method_exists($type, '__toString')) {
+                                    $types[] = (string) $type;
+                                } else {
+                                    $types[] = json_encode($type);
+                                }
+                            }
+                        }
+                    }
+
+                    // Extract config
+                    $config = null;
+                    if (method_exists($subscription, 'getConfig')) {
+                        $configData = $subscription->getConfig();
+                        if ($configData !== null) {
+                            if (is_object($configData) && method_exists($configData, 'toArray')) {
+                                $config = $configData->toArray();
+                            } elseif (is_array($configData)) {
+                                $config = $configData;
+                            }
+                        }
+                    }
+
+                    // Extract data using getter methods
+                    $subscriptions[] = [
+                        'id' => method_exists($subscription, 'getId') ? $subscription->getId() : null,
+                        'sink' => method_exists($subscription, 'getSink') ? $subscription->getSink() : null,
+                        'verified' => method_exists($subscription, 'getVerified') ? ($subscription->getVerified() ?? false) : false,
+                        'types' => $types,
+                        'config' => $config,
+                    ];
+                }
+            }
+
+            Log::info('FIC Subscriptions listed via SDK', [
+                'account_id' => $accountId,
+                'count' => count($subscriptions),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'data' => $subscriptions,
+            ]);
+
+        } catch (\FattureInCloud\ApiException $e) {
+            $statusCode = $e->getCode();
+            $responseBody = $e->getResponseBody() ?? '';
+
+            Log::error('FIC SDK API Exception when listing subscriptions', [
+                'account_id' => $accountId,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+                'error' => $e->getMessage(),
+            ]);
+
+            $errorMessage = 'Failed to list subscriptions';
+            if ($statusCode === 401) {
+                $errorMessage = 'Authentication failed. Access token may be expired.';
+            } elseif ($statusCode === 429) {
+                $errorMessage = 'Rate limit exceeded. Please try again later.';
+            }
+
+            return response()->json([
+                'success' => false,
+                'error' => $errorMessage,
+                'details' => $e->getMessage(),
+            ], $statusCode ?: 500);
+
+        } catch (\Exception $e) {
+            Log::error('FIC Subscription listing error', [
+                'account_id' => $accountId,
+                'error' => $e->getMessage(),
+                'class' => get_class($e),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Unexpected error occurred',
+                'details' => $e->getMessage(),
+            ], 500);
+        }
+    }
 }

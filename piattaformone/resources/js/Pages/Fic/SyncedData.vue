@@ -9,16 +9,19 @@ const activeTab = ref('clients');
 
 // Data state
 const clients = ref([]);
+const suppliers = ref([]);
 const quotes = ref([]);
 const invoices = ref([]);
 
 // Pagination state
 const clientsMeta = ref({ total: 0, current_page: 1, last_page: 1 });
+const suppliersMeta = ref({ total: 0, current_page: 1, last_page: 1 });
 const quotesMeta = ref({ total: 0, current_page: 1, last_page: 1 });
 const invoicesMeta = ref({ total: 0, current_page: 1, last_page: 1 });
 
 // Loading state
 const loadingClients = ref(false);
+const loadingSuppliers = ref(false);
 const loadingQuotes = ref(false);
 const loadingInvoices = ref(false);
 
@@ -30,6 +33,7 @@ const syncError = ref(null);
 // Tab definitions
 const tabs = [
     { id: 'clients', label: 'Clienti', icon: 'users' },
+    { id: 'suppliers', label: 'Fornitori', icon: 'truck' },
     { id: 'quotes', label: 'Preventivi', icon: 'document' },
     { id: 'invoices', label: 'Fatture', icon: 'receipt' },
 ];
@@ -39,6 +43,8 @@ const currentData = computed(() => {
     switch (activeTab.value) {
         case 'clients':
             return clients.value;
+        case 'suppliers':
+            return suppliers.value;
         case 'quotes':
             return quotes.value;
         case 'invoices':
@@ -52,6 +58,8 @@ const currentMeta = computed(() => {
     switch (activeTab.value) {
         case 'clients':
             return clientsMeta.value;
+        case 'suppliers':
+            return suppliersMeta.value;
         case 'quotes':
             return quotesMeta.value;
         case 'invoices':
@@ -65,6 +73,8 @@ const isLoading = computed(() => {
     switch (activeTab.value) {
         case 'clients':
             return loadingClients.value;
+        case 'suppliers':
+            return loadingSuppliers.value;
         case 'quotes':
             return loadingQuotes.value;
         case 'invoices':
@@ -88,6 +98,22 @@ const fetchClients = async (page = 1) => {
         clients.value = [];
     } finally {
         loadingClients.value = false;
+    }
+};
+
+const fetchSuppliers = async (page = 1) => {
+    try {
+        loadingSuppliers.value = true;
+        const response = await window.axios.get('/api/fic/suppliers', {
+            params: { page, per_page: 25 },
+        });
+        suppliers.value = response.data.data || [];
+        suppliersMeta.value = response.data.meta || { total: 0, current_page: 1, last_page: 1 };
+    } catch (error) {
+        console.error('Error fetching suppliers:', error);
+        suppliers.value = [];
+    } finally {
+        loadingSuppliers.value = false;
     }
 };
 
@@ -129,6 +155,9 @@ const changePage = (page) => {
         case 'clients':
             fetchClients(page);
             break;
+        case 'suppliers':
+            fetchSuppliers(page);
+            break;
         case 'quotes':
             fetchQuotes(page);
             break;
@@ -145,6 +174,9 @@ const changeTab = (tabId) => {
     switch (tabId) {
         case 'clients':
             if (clients.value.length === 0) fetchClients();
+            break;
+        case 'suppliers':
+            if (suppliers.value.length === 0) fetchSuppliers();
             break;
         case 'quotes':
             if (quotes.value.length === 0) fetchQuotes();
@@ -166,10 +198,10 @@ const performSync = async () => {
 
         if (response.data.success) {
             const stats = response.data.stats;
-            syncMessage.value = `Sync completato! Clienti: ${stats.clients.created} creati, ${stats.clients.updated} aggiornati. Fatture: ${stats.invoices.created} create, ${stats.invoices.updated} aggiornate. Preventivi: ${stats.quotes.created} creati, ${stats.quotes.updated} aggiornati.`;
+            syncMessage.value = `Sync completato! Clienti: ${stats.clients.created} creati, ${stats.clients.updated} aggiornati. Fornitori: ${stats.suppliers.created} creati, ${stats.suppliers.updated} aggiornati. Fatture: ${stats.invoices.created} create, ${stats.invoices.updated} aggiornate. Preventivi: ${stats.quotes.created} creati, ${stats.quotes.updated} aggiornati.`;
 
             // Refresh all data
-            await Promise.all([fetchClients(), fetchQuotes(), fetchInvoices()]);
+            await Promise.all([fetchClients(), fetchSuppliers(), fetchQuotes(), fetchInvoices()]);
         } else {
             syncError.value = response.data.error || 'Errore durante la sincronizzazione';
         }
@@ -261,6 +293,12 @@ onMounted(() => {
                                     {{ clientsMeta.total }}
                                 </span>
                                 <span
+                                    v-if="tab.id === 'suppliers' && suppliersMeta.total > 0"
+                                    class="ml-2 px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded-full"
+                                >
+                                    {{ suppliersMeta.total }}
+                                </span>
+                                <span
                                     v-if="tab.id === 'quotes' && quotesMeta.total > 0"
                                     class="ml-2 px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded-full"
                                 >
@@ -300,6 +338,7 @@ onMounted(() => {
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID FIC</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Codice</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">P.IVA</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data Creazione FIC</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ultimo Aggiornamento</th>
                                     </tr>
@@ -309,8 +348,35 @@ onMounted(() => {
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ client.fic_client_id }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ client.name || 'N/A' }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ client.code || 'N/A' }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ client.vat_number || 'N/A' }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ formatDate(client.fic_created_at) }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ formatDate(client.updated_at) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Suppliers Table -->
+                        <div v-else-if="activeTab === 'suppliers'" class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID FIC</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Codice</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">P.IVA</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data Creazione FIC</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ultimo Aggiornamento</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr v-for="supplier in suppliers" :key="supplier.id" class="hover:bg-gray-50">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ supplier.fic_supplier_id }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ supplier.name || 'N/A' }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ supplier.code || 'N/A' }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ supplier.vat_number || 'N/A' }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ formatDate(supplier.fic_created_at) }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ formatDate(supplier.updated_at) }}</td>
                                     </tr>
                                 </tbody>
                             </table>
