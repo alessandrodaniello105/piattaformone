@@ -19,6 +19,7 @@ const fileToken = ref(null);
 // Step 2: Variables extraction
 const extractedVariables = ref([]);
 const loadingVariables = ref(false);
+const simpleMapping = ref(true); // Mappatura semplice checkbox
 
 // Step 3: Resources sidebar
 const activeResourceTab = ref('clients');
@@ -37,6 +38,15 @@ const loadingResources = ref({
 const selectedResource = ref(null);
 const selectedResourceData = ref(null);
 const loadingResourceData = ref(false);
+
+// Simple mapping: selected resources for auto-mapping
+const selectedResources = ref({
+    invoice: null,
+    client: null,
+    quote: null,
+    supplier: null,
+});
+const requiredResourceTypes = ref([]);
 
 // Step 4: Variable mapping
 const variableMapping = ref({}); // Maps variable -> fieldPath
@@ -103,12 +113,22 @@ const uploadAndExtract = async () => {
             extractedVariables.value = response.data.variables || [];
             fileToken.value = response.data.file_token;
             currentStep.value = 2;
-            
+
             // Initialize variable mapping with empty values
             extractedVariables.value.forEach(variable => {
                 variableMapping.value[variable] = '';
                 variableValues.value[variable] = '';
             });
+
+            // If simple mapping is enabled, detect required resources and load them
+            if (simpleMapping.value) {
+                requiredResourceTypes.value = detectRequiredResources();
+
+                // Load resources for each required type
+                requiredResourceTypes.value.forEach(type => {
+                    fetchResources(pluralize(type));
+                });
+            }
         } else {
             error.value = response.data.error || 'Errore durante l\'estrazione delle variabili';
         }
@@ -118,6 +138,44 @@ const uploadAndExtract = async () => {
     } finally {
         uploading.value = false;
     }
+};
+
+// Helper to convert singular to plural
+const pluralize = (type) => {
+    const plurals = {
+        'invoice': 'invoices',
+        'client': 'clients',
+        'quote': 'quotes',
+        'supplier': 'suppliers',
+    };
+    return plurals[type] || type + 's';
+};
+
+// Detect required resource types from variables
+const detectRequiredResources = () => {
+    const types = new Set();
+    extractedVariables.value.forEach(variable => {
+        if (variable.startsWith('invoice.')) types.add('invoice');
+        if (variable.startsWith('client.')) types.add('client');
+        if (variable.startsWith('quote.')) types.add('quote');
+        if (variable.startsWith('supplier.')) types.add('supplier');
+    });
+    return Array.from(types);
+};
+
+// Auto-map variables with resource data
+const autoMapVariables = (resourceType, resourceData) => {
+    extractedVariables.value.forEach(variable => {
+        // Check if this variable belongs to this resource type
+        const prefix = `${resourceType}.`;
+        if (variable.startsWith(prefix)) {
+            // Check if the field exists in the resource data
+            if (resourceData[variable] !== undefined) {
+                variableMapping.value[variable] = variable;
+                variableValues.value[variable] = resourceData[variable] || '';
+            }
+        }
+    });
 };
 
 // Step 2: Load resources
@@ -202,12 +260,17 @@ const getFieldValue = (fieldPath) => {
 
 // Step 3: Compile document
 const compileDocument = async () => {
-    // Check if all variables are mapped
+    // Check if all variables are mapped (only in manual mapping mode)
     const unmapped = extractedVariables.value.filter(v => !variableValues.value[v] || variableValues.value[v] === '');
-    
-    if (unmapped.length > 0) {
+
+    if (!simpleMapping.value && unmapped.length > 0) {
         error.value = `Ci sono ${unmapped.length} variabili non mappate. Mappa tutte le variabili prima di compilare.`;
         return;
+    }
+
+    // In simple mapping mode, warn if some variables are unmapped but proceed
+    if (simpleMapping.value && unmapped.length > 0) {
+        console.warn(`${unmapped.length} variabili non sono state mappate automaticamente:`, unmapped);
     }
 
     try {
@@ -263,11 +326,54 @@ const compileDocument = async () => {
     }
 };
 
+
+// Load resource data for simple mapping
+const loadResourceForSimpleMapping = async (type, resourceId) => {
+    try {
+        const response = await window.axios.get('/api/fic/documents/resource', {
+            params: {
+                type: type,
+                id: resourceId,
+            },
+        });
+
+        if (response.data.success) {
+            const resourceData = response.data.data.fields;
+            autoMapVariables(type, resourceData);
+            selectedResources.value[type] = resourceId;
+        } else {
+            error.value = response.data.error || 'Errore nel caricamento dei dati';
+        }
+    } catch (err) {
+        console.error('Error loading resource data:', err);
+        error.value = err.response?.data?.error || 'Errore nel caricamento dei dati';
+    }
+};
+
+// Check if all required resources are selected
+const allResourcesSelected = computed(() => {
+    if (!simpleMapping.value || requiredResourceTypes.value.length === 0) {
+        return false;
+    }
+    return requiredResourceTypes.value.every(type => selectedResources.value[type] !== null);
+});
+
+// Proceed to compile with simple mapping
+const proceedToCompile = async () => {
+    if (!allResourcesSelected.value) {
+        error.value = 'Seleziona tutte le risorse richieste prima di procedere.';
+        return;
+    }
+
+    // Skip to step 4 (we'll compile directly)
+    await compileDocument();
+};
+
 // Navigation
 const nextStep = () => {
     if (currentStep.value < totalSteps) {
         currentStep.value++;
-        
+
         // Auto-load resources when entering step 3
         if (currentStep.value === 3) {
             fetchResources(activeResourceTab.value);
@@ -293,6 +399,14 @@ const reset = () => {
     fileToken.value = null;
     error.value = null;
     success.value = null;
+    simpleMapping.value = true;
+    selectedResources.value = {
+        invoice: null,
+        client: null,
+        quote: null,
+        supplier: null,
+    };
+    requiredResourceTypes.value = [];
     if (fileInput.value) {
         fileInput.value.value = '';
     }
@@ -306,8 +420,8 @@ const changeResourceTab = (tabId) => {
 };
 
 // Format resource display
-const formatResourceDisplay = (resource) => {
-    const type = activeResourceTab.value.slice(0, -1);
+const formatResourceDisplay = (resource, resourceType = null) => {
+    const type = resourceType || activeResourceTab.value.slice(0, -1);
     switch (type) {
         case 'client':
             return `${resource.name || 'N/A'} - ${resource.code || 'N/A'}`;
@@ -439,23 +553,98 @@ const mappedCount = computed(() => {
                         <h3 class="text-lg font-medium text-gray-900 mb-4">
                             Step 2: Variabili Trovate ({{ extractedVariables.length }})
                         </h3>
+
+                        <!-- Simple Mapping Checkbox -->
+                        <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
+                            <label class="flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    v-model="simpleMapping"
+                                    class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                                />
+                                <span class="ml-3 text-sm">
+                                    <span class="font-medium text-gray-900">Mappatura semplice</span>
+                                    <span class="text-gray-600 block mt-1">
+                                        Mappa automaticamente le variabili che corrispondono ai campi del sistema (es. ${'{'}client.name{'}'}, ${'{'}invoice.number{'}'}).
+                                        Se disattivato, potrai mappare manualmente ogni variabile.
+                                    </span>
+                                </span>
+                            </label>
+                        </div>
+
                         <div v-if="extractedVariables.length === 0" class="text-center py-8 text-gray-500">
                             Nessuna variabile trovata nel documento
                         </div>
-                        <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
-                            <div
-                                v-for="variable in extractedVariables"
-                                :key="variable"
-                                class="p-3 bg-gray-50 rounded-md border border-gray-200"
-                            >
-                                <code class="text-sm text-indigo-600">{{ `$\{${variable}\}` }}</code>
+                        <div v-else>
+                            <!-- Variables List -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+                                <div
+                                    v-for="variable in extractedVariables"
+                                    :key="variable"
+                                    class="p-3 bg-gray-50 rounded-md border border-gray-200"
+                                >
+                                    <code class="text-sm text-indigo-600">{{ `$\{${variable}\}` }}</code>
+                                </div>
+                            </div>
+
+                            <!-- Resource Selection (Simple Mapping Mode) -->
+                            <div v-if="simpleMapping && requiredResourceTypes.length > 0" class="mb-6">
+                                <h4 class="text-md font-medium text-gray-900 mb-4">
+                                    Seleziona le Risorse per la Mappatura Automatica
+                                </h4>
+                                <p class="text-sm text-gray-600 mb-4">
+                                    Le seguenti risorse sono necessarie per mappare automaticamente le variabili trovate:
+                                </p>
+                                <div class="space-y-4">
+                                    <div
+                                        v-for="resourceType in requiredResourceTypes"
+                                        :key="resourceType"
+                                        class="p-4 bg-white border border-gray-200 rounded-md"
+                                    >
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            {{ resourceType === 'client' ? 'Cliente' : resourceType === 'supplier' ? 'Fornitore' : resourceType === 'quote' ? 'Preventivo' : 'Fattura' }}
+                                        </label>
+                                        <select
+                                            v-model="selectedResources[resourceType]"
+                                            @change="loadResourceForSimpleMapping(resourceType, selectedResources[resourceType])"
+                                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                        >
+                                            <option :value="null">Seleziona...</option>
+                                            <option
+                                                v-for="resource in resources[pluralize(resourceType)]"
+                                                :key="resource.id"
+                                                :value="resource.id"
+                                            >
+                                                {{ formatResourceDisplay(resource, resourceType) }}
+                                            </option>
+                                        </select>
+                                    </div>
+                                </div>
                             </div>
                         </div>
+
                         <div class="flex gap-4">
                             <SecondaryButton @click="prevStep">Indietro</SecondaryButton>
-                            <PrimaryButton @click="nextStep" :disabled="!canProceedToStep3">
-                                Avanti
+                            <!-- Manual mapping: go to step 3 -->
+                            <PrimaryButton
+                                v-if="!simpleMapping"
+                                @click="nextStep"
+                                :disabled="!canProceedToStep3"
+                            >
+                                Avanti a Mappatura Manuale
                             </PrimaryButton>
+                            <!-- Simple mapping: compile directly -->
+                            <PrimaryButton
+                                v-else-if="requiredResourceTypes.length > 0"
+                                @click="proceedToCompile"
+                                :disabled="!allResourcesSelected"
+                            >
+                                Compila e Scarica
+                            </PrimaryButton>
+                            <!-- No recognized variables in simple mapping -->
+                            <div v-else class="text-sm text-amber-600">
+                                Nessuna variabile riconosciuta per la mappatura automatica. Disattiva "Mappatura semplice" per procedere manualmente.
+                            </div>
                         </div>
                     </div>
 
