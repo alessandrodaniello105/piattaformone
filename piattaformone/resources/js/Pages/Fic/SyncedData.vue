@@ -1,8 +1,9 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import SecondaryButton from '@/Components/SecondaryButton.vue';
+import { usePage } from '@inertiajs/vue3';
 
 // Props from Inertia (initial data from backend)
 const props = defineProps({
@@ -245,7 +246,92 @@ const formatCurrency = (value) => {
     }).format(value);
 };
 
+// Get current FIC account ID from page props
+const page = usePage();
+const ficConnection = computed(() => page.props.ficConnection);
+const currentAccountId = computed(() => ficConnection.value?.account_id);
+
+// Echo channel reference for cleanup
+let syncChannel = null;
+
+// Setup Echo listener for real-time resource sync updates
+const setupEchoListener = () => {
+    if (!window.Echo) {
+        console.warn('Echo is not available');
+        return;
+    }
+
+    if (!window.Echo.channel || typeof window.Echo.channel !== 'function') {
+        console.warn('Echo.channel is not available');
+        return;
+    }
+
+    if (!currentAccountId.value) {
+        console.warn('No FIC account ID available for Echo listener');
+        return;
+    }
+
+    try {
+        // Listen for resource sync events on account-specific channel
+        syncChannel = window.Echo.channel(`sync.account.${currentAccountId.value}`);
+        
+        if (syncChannel && syncChannel.listen) {
+            syncChannel.listen('.resource.synced', (data) => {
+                console.log('Resource synced event received:', data);
+                
+                // Refresh the data for the synced resource type
+                const resourceType = data.resource_type;
+                
+                switch (resourceType) {
+                    case 'client':
+                        fetchClients(clientsMeta.value.current_page);
+                        break;
+                    case 'supplier':
+                        fetchSuppliers(suppliersMeta.value.current_page);
+                        break;
+                    case 'quote':
+                        fetchQuotes(quotesMeta.value.current_page);
+                        break;
+                    case 'invoice':
+                        fetchInvoices(invoicesMeta.value.current_page);
+                        break;
+                }
+            });
+            
+            console.log('Echo listener set up for resource sync events', {
+                accountId: currentAccountId.value,
+                channel: `sync.account.${currentAccountId.value}`,
+            });
+        }
+    } catch (error) {
+        console.error('Error setting up Echo listener:', error);
+    }
+};
+
+// Cleanup Echo channel on unmount
+const cleanupEchoListener = () => {
+    if (syncChannel && window.Echo) {
+        try {
+            window.Echo.leave(`sync.account.${currentAccountId.value}`);
+            syncChannel = null;
+            console.log('Echo listener cleaned up');
+        } catch (error) {
+            console.error('Error cleaning up Echo listener:', error);
+        }
+    }
+};
+
 // Lifecycle
+onMounted(() => {
+    // Setup Echo listener when component mounts
+    setupEchoListener();
+});
+
+onUnmounted(() => {
+    // Cleanup Echo listener when component unmounts
+    cleanupEchoListener();
+});
+
 // Note: Clients are now loaded from Inertia props (initialClients, initialClientsMeta)
 // No need to fetch on mount, improving initial page load performance
 </script>

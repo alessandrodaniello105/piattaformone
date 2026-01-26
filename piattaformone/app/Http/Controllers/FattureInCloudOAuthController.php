@@ -673,6 +673,28 @@ class FattureInCloudOAuthController extends Controller
             'tenant_id' => $tenantId,
         ]);
 
+        // Check if this company_id is already used by another team
+        $existingAccount = FicAccount::where('company_id', $companyId)
+            ->where('tenant_id', '!=', $tenantId)
+            ->first();
+        
+        if ($existingAccount) {
+            $existingTeam = \App\Models\Team::find($existingAccount->tenant_id);
+            Log::warning('FIC OAuth: Company ID already connected to another team', [
+                'company_id' => $companyId,
+                'company_name' => $companyName,
+                'current_team_id' => $tenantId,
+                'existing_team_id' => $existingAccount->tenant_id,
+                'existing_team_name' => $existingTeam?->name,
+            ]);
+            
+            throw new \RuntimeException(
+                "L'account Fatture in Cloud '{$companyName}' (ID: {$companyId}) è già connesso al team '{$existingTeam?->name}'. " .
+                "Ogni team deve avere il proprio account FIC separato. " .
+                "Crea un nuovo account FIC o aggiungi i membri al team esistente."
+            );
+        }
+
         $account = FicAccount::updateOrCreate(
             [
                 'company_id' => $companyId,

@@ -109,8 +109,8 @@ class SyncFicResourceJob implements ShouldQueue
             // Dispatch ResourceSynced event
             $this->dispatchResourceSyncedEvent($this->resourceType, $this->ficId, $this->accountId, $this->action, $resourceData);
 
-            // Invalidate cache for this resource type
-            $this->invalidateCache($this->resourceType);
+            // Invalidate cache for this resource type and team
+            $this->invalidateCache($this->resourceType, $account->tenant_id);
 
             Log::info('FIC Sync: Resource synced successfully', [
                 'resource_type' => $this->resourceType,
@@ -173,8 +173,8 @@ class SyncFicResourceJob implements ShouldQueue
                 ['id' => $this->ficId]
             );
 
-            // Invalidate cache for this resource type
-            $this->invalidateCache($this->resourceType);
+            // Invalidate cache for this resource type and team
+            $this->invalidateCache($this->resourceType, $account->tenant_id);
         } else {
             Log::warning('FIC Sync: Resource not found for deletion', [
                 'resource_type' => $this->resourceType,
@@ -371,11 +371,12 @@ class SyncFicResourceJob implements ShouldQueue
     }
 
     /**
-     * Invalidate cache for a specific resource type.
+     * Invalidate cache for a specific resource type and team.
      *
      * @param  string  $resourceType  The resource type (singular: client, supplier, invoice, quote)
+     * @param  int|null  $teamId  The team ID to invalidate cache for
      */
-    private function invalidateCache(string $resourceType): void
+    private function invalidateCache(string $resourceType, ?int $teamId = null): void
     {
         try {
             $cacheService = app(FicCacheService::class);
@@ -390,10 +391,11 @@ class SyncFicResourceJob implements ShouldQueue
             };
 
             if ($pluralType) {
-                $cacheService->invalidate($pluralType);
+                $cacheService->invalidate($pluralType, $teamId);
                 Log::debug('FIC Sync: Cache invalidated', [
                     'resource_type' => $resourceType,
                     'cache_key' => $pluralType,
+                    'team_id' => $teamId,
                 ]);
             }
         } catch (\Exception $e) {
