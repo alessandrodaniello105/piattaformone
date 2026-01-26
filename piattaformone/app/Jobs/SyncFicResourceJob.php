@@ -9,6 +9,7 @@ use App\Models\FicInvoice;
 use App\Models\FicQuote;
 use App\Models\FicSupplier;
 use App\Services\FicApiService;
+use App\Services\FicCacheService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -108,6 +109,9 @@ class SyncFicResourceJob implements ShouldQueue
             // Dispatch ResourceSynced event
             $this->dispatchResourceSyncedEvent($this->resourceType, $this->ficId, $this->accountId, $this->action, $resourceData);
 
+            // Invalidate cache for this resource type
+            $this->invalidateCache($this->resourceType);
+
             Log::info('FIC Sync: Resource synced successfully', [
                 'resource_type' => $this->resourceType,
                 'fic_id' => $this->ficId,
@@ -168,6 +172,9 @@ class SyncFicResourceJob implements ShouldQueue
                 'deleted',
                 ['id' => $this->ficId]
             );
+
+            // Invalidate cache for this resource type
+            $this->invalidateCache($this->resourceType);
         } else {
             Log::warning('FIC Sync: Resource not found for deletion', [
                 'resource_type' => $this->resourceType,
@@ -358,6 +365,41 @@ class SyncFicResourceJob implements ShouldQueue
                 'resource_type' => $resourceType,
                 'fic_id' => $ficId,
                 'account_id' => $accountId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Invalidate cache for a specific resource type.
+     *
+     * @param  string  $resourceType  The resource type (singular: client, supplier, invoice, quote)
+     */
+    private function invalidateCache(string $resourceType): void
+    {
+        try {
+            $cacheService = app(FicCacheService::class);
+
+            // Convert singular to plural for cache keys
+            $pluralType = match ($resourceType) {
+                'client' => 'clients',
+                'supplier' => 'suppliers',
+                'invoice' => 'invoices',
+                'quote' => 'quotes',
+                default => null,
+            };
+
+            if ($pluralType) {
+                $cacheService->invalidate($pluralType);
+                Log::debug('FIC Sync: Cache invalidated', [
+                    'resource_type' => $resourceType,
+                    'cache_key' => $pluralType,
+                ]);
+            }
+        } catch (\Exception $e) {
+            // Log cache invalidation error but don't fail the sync
+            Log::warning('FIC Sync: Failed to invalidate cache', [
+                'resource_type' => $resourceType,
                 'error' => $e->getMessage(),
             ]);
         }

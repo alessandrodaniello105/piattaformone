@@ -35,9 +35,12 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        $user = $request->user();
+        $ficConnectionService = app(\App\Services\FicConnectionService::class);
+
         return [
             ...parent::share($request),
-            //
+            'ficConnection' => $user ? $ficConnectionService->checkConnectionStatus($user) : null,
         ];
     }
 }

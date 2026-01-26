@@ -9,11 +9,14 @@ use App\Models\FicInvoice;
 use App\Models\FicQuote;
 use App\Models\FicSupplier;
 use App\Services\FicApiService;
+use App\Services\FicCacheService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Inertia\Inertia;
+use Inertia\Response as InertiaResponse;
 
 /**
  * Controller for FIC synchronization and dashboard APIs.
@@ -25,6 +28,72 @@ use Illuminate\Support\Facades\Log;
  */
 class FicSyncController extends Controller
 {
+    private FicCacheService $cacheService;
+
+    public function __construct(FicCacheService $cacheService)
+    {
+        $this->cacheService = $cacheService;
+    }
+
+    /**
+     * Show the synced data page with initial clients data.
+     *
+     * @return InertiaResponse
+     */
+    public function index(Request $request): InertiaResponse
+    {
+        try {
+            // Get initial clients data (first page, 25 per page)
+            // Try cache first
+            $cached = $this->cacheService->get('clients', 1, 25);
+
+            if ($cached !== null) {
+                $clientsData = $cached['data'];
+                $clientsMeta = $cached['meta'];
+            } else {
+                // Fetch from database if not cached - filter by current team
+                $account = FicAccount::forTeam($request->user()->current_team_id)
+                    ->where('status', 'active')
+                    ->first();
+
+                if ($account) {
+                    $clients = FicClient::where('fic_account_id', $account->id)
+                        ->orderBy('updated_at', 'desc')
+                        ->paginate(25);
+
+                    $clientsData = $clients->items();
+                    $clientsMeta = [
+                        'current_page' => $clients->currentPage(),
+                        'last_page' => $clients->lastPage(),
+                        'per_page' => $clients->perPage(),
+                        'total' => $clients->total(),
+                    ];
+
+                    // Store in cache
+                    $this->cacheService->put('clients', 1, 25, $clientsData, $clientsMeta);
+                } else {
+                    $clientsData = [];
+                    $clientsMeta = ['total' => 0, 'current_page' => 1, 'last_page' => 1, 'per_page' => 25];
+                }
+            }
+
+            return Inertia::render('Fic/SyncedData', [
+                'initialClients' => $clientsData,
+                'initialClientsMeta' => $clientsMeta,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('FIC Sync: Error loading synced data page', [
+                'error' => $e->getMessage(),
+            ]);
+
+            // Return page with empty data on error
+            return Inertia::render('Fic/SyncedData', [
+                'initialClients' => [],
+                'initialClientsMeta' => ['total' => 0, 'current_page' => 1, 'last_page' => 1, 'per_page' => 25],
+            ]);
+        }
+    }
+
     /**
      * Perform initial sync from FIC API.
      *
@@ -33,21 +102,17 @@ class FicSyncController extends Controller
      *
      * @return JsonResponse
      */
-    public function initialSync(): JsonResponse
+    public function initialSync(Request $request): JsonResponse
     {
         try {
-            // Get the default/active FIC account (single account setup)
-            $account = FicAccount::where('status', 'active')
-                ->orWhereNull('status')
+            // Get the active FIC account for the current team
+            $account = FicAccount::forTeam($request->user()->current_team_id)
+                ->where('status', 'active')
                 ->first();
 
             if (!$account) {
-                $account = FicAccount::first();
-            }
-
-            if (!$account) {
                 return response()->json([
-                    'error' => 'No FIC account found. Please connect an account first.',
+                    'error' => 'No FIC account found for this team. Please connect an account first.',
                 ], 404);
             }
 
@@ -76,12 +141,8 @@ class FicSyncController extends Controller
                             'name' => $clientData['name'] ?? null,
                             'code' => $clientData['code'] ?? null,
                             'vat_number' => $clientData['vat_number'] ?? null,
-                            'fic_created_at' => isset($clientData['created_at']) 
-                                ? Carbon::parse($clientData['created_at']) 
-                                : null,
-                            'fic_updated_at' => isset($clientData['updated_at']) 
-                                ? Carbon::parse($clientData['updated_at']) 
-                                : null,
+                            'fic_created_at' => $this->extractFicCreatedAt($clientData),
+                            'fic_updated_at' => $this->extractFicUpdatedAt($clientData),
                             'raw' => $clientData,
                         ]
                     );
@@ -115,12 +176,8 @@ class FicSyncController extends Controller
                             'name' => $supplierData['name'] ?? null,
                             'code' => $supplierData['code'] ?? null,
                             'vat_number' => $supplierData['vat_number'] ?? null,
-                            'fic_created_at' => isset($supplierData['created_at']) 
-                                ? Carbon::parse($supplierData['created_at']) 
-                                : null,
-                            'fic_updated_at' => isset($supplierData['updated_at']) 
-                                ? Carbon::parse($supplierData['updated_at']) 
-                                : null,
+                            'fic_created_at' => $this->extractFicCreatedAt($supplierData),
+                            'fic_updated_at' => $this->extractFicUpdatedAt($supplierData),
                             'raw' => $supplierData,
                         ]
                     );
@@ -157,9 +214,7 @@ class FicSyncController extends Controller
                                 ?? $quoteData['total'] 
                                 ?? $quoteData['total_gross'] 
                                 ?? null,
-                            'fic_date' => isset($quoteData['date']) 
-                                ? Carbon::parse($quoteData['date']) 
-                                : null,
+                            'fic_date' => $this->extractFicDate($quoteData),
                             'fic_created_at' => isset($quoteData['created_at']) 
                                 ? Carbon::parse($quoteData['created_at']) 
                                 : null,
@@ -199,9 +254,7 @@ class FicSyncController extends Controller
                                 ?? $invoiceData['total'] 
                                 ?? $invoiceData['total_gross'] 
                                 ?? null,
-                            'fic_date' => isset($invoiceData['date']) 
-                                ? Carbon::parse($invoiceData['date']) 
-                                : null,
+                            'fic_date' => $this->extractFicDate($invoiceData),
                             'fic_created_at' => isset($invoiceData['created_at']) 
                                 ? Carbon::parse($invoiceData['created_at']) 
                                 : null,
@@ -224,6 +277,9 @@ class FicSyncController extends Controller
 
             // Update last_sync_at timestamp
             $account->update(['last_sync_at' => now()]);
+
+            // Invalidate all cache after sync
+            $this->cacheService->invalidateAll();
 
             return response()->json([
                 'success' => true,
@@ -257,14 +313,10 @@ class FicSyncController extends Controller
             $limit = (int) ($request->input('limit', 100));
             $limit = min(max($limit, 1), 200); // Clamp between 1 and 200
 
-            // Get the default/active FIC account
-            $account = FicAccount::where('status', 'active')
-                ->orWhereNull('status')
+            // Get the active FIC account for the current team
+            $account = FicAccount::forTeam($request->user()->current_team_id)
+                ->where('status', 'active')
                 ->first();
-
-            if (!$account) {
-                $account = FicAccount::first();
-            }
 
             if (!$account) {
                 return response()->json([
@@ -381,17 +433,13 @@ class FicSyncController extends Controller
      *
      * @return JsonResponse
      */
-    public function metrics(): JsonResponse
+    public function metrics(Request $request): JsonResponse
     {
         try {
-            // Get the default/active FIC account
-            $account = FicAccount::where('status', 'active')
-                ->orWhereNull('status')
+            // Get the active FIC account for the current team
+            $account = FicAccount::forTeam($request->user()->current_team_id)
+                ->where('status', 'active')
                 ->first();
-
-            if (!$account) {
-                $account = FicAccount::first();
-            }
 
             if (!$account) {
                 return response()->json([
@@ -440,10 +488,15 @@ class FicSyncController extends Controller
             }
 
             // Get quotes grouped by year-month (PostgreSQL compatible)
+            // Use fic_date with fallback to fic_created_at (same logic as analyticsDate() method)
             $quotesData = FicQuote::where('fic_account_id', $account->id)
-                ->whereNotNull(DB::raw("raw->>'fic_date'"))
-                ->selectRaw("EXTRACT(YEAR FROM CAST(raw->>'fic_date' AS DATE))::integer as year, EXTRACT(MONTH FROM CAST(raw->>'fic_date' AS DATE))::integer as month, COUNT(*) as count")
-                ->groupBy(DB::raw("EXTRACT(YEAR FROM CAST(raw->>'fic_date' AS DATE))"), DB::raw("EXTRACT(MONTH FROM CAST(raw->>'fic_date' AS DATE))"))
+                ->where(function ($query) {
+                    $query->whereNotNull('fic_date')
+                        ->orWhereNotNull(DB::raw("raw->>'fic_date'"))
+                        ->orWhereNotNull('fic_created_at');
+                })
+                ->selectRaw("EXTRACT(YEAR FROM COALESCE(fic_date, CAST(raw->>'fic_date' AS DATE), fic_created_at::date))::integer as year, EXTRACT(MONTH FROM COALESCE(fic_date, CAST(raw->>'fic_date' AS DATE), fic_created_at::date))::integer as month, COUNT(*) as count")
+                ->groupBy(DB::raw("EXTRACT(YEAR FROM COALESCE(fic_date, CAST(raw->>'fic_date' AS DATE), fic_created_at::date))"), DB::raw("EXTRACT(MONTH FROM COALESCE(fic_date, CAST(raw->>'fic_date' AS DATE), fic_created_at::date))"))
                 ->get();
 
             foreach ($quotesData as $data) {
@@ -454,10 +507,15 @@ class FicSyncController extends Controller
             }
 
             // Get invoices grouped by year-month (PostgreSQL compatible)
+            // Use fic_date with fallback to raw->>'fic_date' then fic_created_at (same logic as analyticsDate() method)
             $invoicesData = FicInvoice::where('fic_account_id', $account->id)
-                ->whereNotNull(DB::raw("raw->>'fic_date'"))
-                ->selectRaw("EXTRACT(YEAR FROM CAST(raw->>'fic_date' AS DATE))::integer as year, EXTRACT(MONTH FROM CAST(raw->>'fic_date' AS DATE))::integer as month, COUNT(*) as count")
-                ->groupBy(DB::raw("EXTRACT(YEAR FROM CAST(raw->>'fic_date' AS DATE))"), DB::raw("EXTRACT(MONTH FROM CAST(raw->>'fic_date' AS DATE))"))
+                ->where(function ($query) {
+                    $query->whereNotNull('fic_date')
+                        ->orWhereNotNull(DB::raw("raw->>'fic_date'"))
+                        ->orWhereNotNull('fic_created_at');
+                })
+                ->selectRaw("EXTRACT(YEAR FROM COALESCE(fic_date, CAST(raw->>'fic_date' AS DATE), fic_created_at::date))::integer as year, EXTRACT(MONTH FROM COALESCE(fic_date, CAST(raw->>'fic_date' AS DATE), fic_created_at::date))::integer as month, COUNT(*) as count")
+                ->groupBy(DB::raw("EXTRACT(YEAR FROM COALESCE(fic_date, CAST(raw->>'fic_date' AS DATE), fic_created_at::date))"), DB::raw("EXTRACT(MONTH FROM COALESCE(fic_date, CAST(raw->>'fic_date' AS DATE), fic_created_at::date))"))
                 ->get();
 
             foreach ($invoicesData as $data) {
@@ -475,8 +533,9 @@ class FicSyncController extends Controller
                 ->whereBetween('fic_created_at', [$lastMonthStart, $lastMonthEnd])
                 ->count();
 
+            // Use fic_date with fallback to raw->>'fic_date' then fic_created_at (same logic as analyticsDate() method)
             $lastMonthInvoices = FicInvoice::where('fic_account_id', $account->id)
-                ->whereBetween('fic_date', [$lastMonthStart, $lastMonthEnd])
+                ->whereRaw('COALESCE(fic_date, CAST(raw->>\'fic_date\' AS DATE), fic_created_at::date) BETWEEN ? AND ?', [$lastMonthStart, $lastMonthEnd])
                 ->count();
 
             return response()->json([
@@ -570,14 +629,18 @@ class FicSyncController extends Controller
         try {
             $perPage = (int) ($request->input('per_page', 25));
             $perPage = min(max($perPage, 1), 100);
+            $page = (int) ($request->input('page', 1));
 
-            $account = FicAccount::where('status', 'active')
-                ->orWhereNull('status')
-                ->first();
-
-            if (!$account) {
-                $account = FicAccount::first();
+            // Try to get from cache first
+            $cached = $this->cacheService->get('clients', $page, $perPage);
+            if ($cached !== null) {
+                return response()->json($cached);
             }
+
+            // Get the active FIC account for the current team
+            $account = FicAccount::forTeam($request->user()->current_team_id)
+                ->where('status', 'active')
+                ->first();
 
             if (!$account) {
                 return response()->json([
@@ -588,9 +651,9 @@ class FicSyncController extends Controller
 
             $clients = FicClient::where('fic_account_id', $account->id)
                 ->orderBy('updated_at', 'desc')
-                ->paginate($perPage);
+                ->paginate($perPage, ['*'], 'page', $page);
 
-            return response()->json([
+            $response = [
                 'data' => $clients->items(),
                 'meta' => [
                     'current_page' => $clients->currentPage(),
@@ -598,7 +661,12 @@ class FicSyncController extends Controller
                     'per_page' => $clients->perPage(),
                     'total' => $clients->total(),
                 ],
-            ]);
+            ];
+
+            // Store in cache
+            $this->cacheService->put('clients', $page, $perPage, $response['data'], $response['meta']);
+
+            return response()->json($response);
         } catch (\Exception $e) {
             Log::error('FIC Sync: Error fetching clients', [
                 'error' => $e->getMessage(),
@@ -621,14 +689,18 @@ class FicSyncController extends Controller
         try {
             $perPage = (int) ($request->input('per_page', 25));
             $perPage = min(max($perPage, 1), 100);
+            $page = (int) ($request->input('page', 1));
 
-            $account = FicAccount::where('status', 'active')
-                ->orWhereNull('status')
-                ->first();
-
-            if (!$account) {
-                $account = FicAccount::first();
+            // Try to get from cache first
+            $cached = $this->cacheService->get('quotes', $page, $perPage);
+            if ($cached !== null) {
+                return response()->json($cached);
             }
+
+            // Get the active FIC account for the current team
+            $account = FicAccount::forTeam($request->user()->current_team_id)
+                ->where('status', 'active')
+                ->first();
 
             if (!$account) {
                 return response()->json([
@@ -639,9 +711,9 @@ class FicSyncController extends Controller
 
             $quotes = FicQuote::where('fic_account_id', $account->id)
                 ->orderBy('updated_at', 'desc')
-                ->paginate($perPage);
+                ->paginate($perPage, ['*'], 'page', $page);
 
-            return response()->json([
+            $response = [
                 'data' => $quotes->items(),
                 'meta' => [
                     'current_page' => $quotes->currentPage(),
@@ -649,7 +721,12 @@ class FicSyncController extends Controller
                     'per_page' => $quotes->perPage(),
                     'total' => $quotes->total(),
                 ],
-            ]);
+            ];
+
+            // Store in cache
+            $this->cacheService->put('quotes', $page, $perPage, $response['data'], $response['meta']);
+
+            return response()->json($response);
         } catch (\Exception $e) {
             Log::error('FIC Sync: Error fetching quotes', [
                 'error' => $e->getMessage(),
@@ -672,14 +749,18 @@ class FicSyncController extends Controller
         try {
             $perPage = (int) ($request->input('per_page', 25));
             $perPage = min(max($perPage, 1), 100);
+            $page = (int) ($request->input('page', 1));
 
-            $account = FicAccount::where('status', 'active')
-                ->orWhereNull('status')
-                ->first();
-
-            if (!$account) {
-                $account = FicAccount::first();
+            // Try to get from cache first
+            $cached = $this->cacheService->get('suppliers', $page, $perPage);
+            if ($cached !== null) {
+                return response()->json($cached);
             }
+
+            // Get the active FIC account for the current team
+            $account = FicAccount::forTeam($request->user()->current_team_id)
+                ->where('status', 'active')
+                ->first();
 
             if (!$account) {
                 return response()->json([
@@ -690,9 +771,9 @@ class FicSyncController extends Controller
 
             $suppliers = FicSupplier::where('fic_account_id', $account->id)
                 ->orderBy('updated_at', 'desc')
-                ->paginate($perPage);
+                ->paginate($perPage, ['*'], 'page', $page);
 
-            return response()->json([
+            $response = [
                 'data' => $suppliers->items(),
                 'meta' => [
                     'current_page' => $suppliers->currentPage(),
@@ -700,7 +781,12 @@ class FicSyncController extends Controller
                     'per_page' => $suppliers->perPage(),
                     'total' => $suppliers->total(),
                 ],
-            ]);
+            ];
+
+            // Store in cache
+            $this->cacheService->put('suppliers', $page, $perPage, $response['data'], $response['meta']);
+
+            return response()->json($response);
         } catch (\Exception $e) {
             Log::error('FIC Sync: Error fetching suppliers', [
                 'error' => $e->getMessage(),
@@ -723,14 +809,18 @@ class FicSyncController extends Controller
         try {
             $perPage = (int) ($request->input('per_page', 25));
             $perPage = min(max($perPage, 1), 100);
+            $page = (int) ($request->input('page', 1));
 
-            $account = FicAccount::where('status', 'active')
-                ->orWhereNull('status')
-                ->first();
-
-            if (!$account) {
-                $account = FicAccount::first();
+            // Try to get from cache first
+            $cached = $this->cacheService->get('invoices', $page, $perPage);
+            if ($cached !== null) {
+                return response()->json($cached);
             }
+
+            // Get the active FIC account for the current team
+            $account = FicAccount::forTeam($request->user()->current_team_id)
+                ->where('status', 'active')
+                ->first();
 
             if (!$account) {
                 return response()->json([
@@ -741,9 +831,9 @@ class FicSyncController extends Controller
 
             $invoices = FicInvoice::where('fic_account_id', $account->id)
                 ->orderBy('updated_at', 'desc')
-                ->paginate($perPage);
+                ->paginate($perPage, ['*'], 'page', $page);
 
-            return response()->json([
+            $response = [
                 'data' => $invoices->items(),
                 'meta' => [
                     'current_page' => $invoices->currentPage(),
@@ -751,7 +841,12 @@ class FicSyncController extends Controller
                     'per_page' => $invoices->perPage(),
                     'total' => $invoices->total(),
                 ],
-            ]);
+            ];
+
+            // Store in cache
+            $this->cacheService->put('invoices', $page, $perPage, $response['data'], $response['meta']);
+
+            return response()->json($response);
         } catch (\Exception $e) {
             Log::error('FIC Sync: Error fetching invoices', [
                 'error' => $e->getMessage(),
@@ -761,5 +856,140 @@ class FicSyncController extends Controller
                 'error' => 'Failed to fetch invoices: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Extract fic_date from data array, checking both direct 'date' field and 'raw' array.
+     *
+     * @param  array  $data  The data array (may contain 'date' directly or 'fic_date' in 'raw')
+     * @return \Illuminate\Support\Carbon|null
+     */
+    private function extractFicDate(array $data): ?Carbon
+    {
+        // Try direct 'date' field first (from API response)
+        if (isset($data['date']) && !empty($data['date'])) {
+            try {
+                return Carbon::parse($data['date']);
+            } catch (\Exception $e) {
+                // Invalid date format, continue to check raw
+            }
+        }
+
+        // Try from raw array - check for 'fic_date' (as stored in raw JSON)
+        if (isset($data['raw']['fic_date']) && !empty($data['raw']['fic_date'])) {
+            try {
+                return Carbon::parse($data['raw']['fic_date']);
+            } catch (\Exception $e) {
+                // Invalid date format
+            }
+        }
+
+        // Also try 'date' in raw (in case it's stored as 'date' in raw)
+        if (isset($data['raw']['date']) && !empty($data['raw']['date'])) {
+            try {
+                return Carbon::parse($data['raw']['date']);
+            } catch (\Exception $e) {
+                // Invalid date format
+            }
+        }
+
+        // If data itself is the raw response (when passed directly from API)
+        // Check if it's already the raw structure
+        if (isset($data['raw']) && is_array($data['raw'])) {
+            // Try fic_date first
+            if (isset($data['raw']['fic_date']) && !empty($data['raw']['fic_date'])) {
+                try {
+                    return Carbon::parse($data['raw']['fic_date']);
+                } catch (\Exception $e) {
+                    // Invalid date format
+                }
+            }
+            // Then try date
+            if (isset($data['raw']['date']) && !empty($data['raw']['date'])) {
+                try {
+                    return Carbon::parse($data['raw']['date']);
+                } catch (\Exception $e) {
+                    // Invalid date format
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract fic_created_at from data array, checking both direct 'created_at' field and 'raw' array.
+     *
+     * @param  array  $data  The data array (may contain 'created_at' directly or 'fic_created_at' in 'raw')
+     * @return \Illuminate\Support\Carbon|null
+     */
+    private function extractFicCreatedAt(array $data): ?Carbon
+    {
+        // Try direct 'created_at' field first (from API response)
+        if (isset($data['created_at']) && !empty($data['created_at'])) {
+            try {
+                return Carbon::parse($data['created_at']);
+            } catch (\Exception $e) {
+                // Invalid date format, continue to check raw
+            }
+        }
+
+        // Try from raw array - check for 'fic_created_at' (as stored in raw JSON)
+        if (isset($data['raw']['fic_created_at']) && !empty($data['raw']['fic_created_at'])) {
+            try {
+                return Carbon::parse($data['raw']['fic_created_at']);
+            } catch (\Exception $e) {
+                // Invalid date format
+            }
+        }
+
+        // Also try 'created_at' in raw (in case it's stored as 'created_at' in raw)
+        if (isset($data['raw']['created_at']) && !empty($data['raw']['created_at'])) {
+            try {
+                return Carbon::parse($data['raw']['created_at']);
+            } catch (\Exception $e) {
+                // Invalid date format
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract fic_updated_at from data array, checking both direct 'updated_at' field and 'raw' array.
+     *
+     * @param  array  $data  The data array (may contain 'updated_at' directly or 'fic_updated_at' in 'raw')
+     * @return \Illuminate\Support\Carbon|null
+     */
+    private function extractFicUpdatedAt(array $data): ?Carbon
+    {
+        // Try direct 'updated_at' field first (from API response)
+        if (isset($data['updated_at']) && !empty($data['updated_at'])) {
+            try {
+                return Carbon::parse($data['updated_at']);
+            } catch (\Exception $e) {
+                // Invalid date format, continue to check raw
+            }
+        }
+
+        // Try from raw array - check for 'fic_updated_at' (as stored in raw JSON)
+        if (isset($data['raw']['fic_updated_at']) && !empty($data['raw']['fic_updated_at'])) {
+            try {
+                return Carbon::parse($data['raw']['fic_updated_at']);
+            } catch (\Exception $e) {
+                // Invalid date format
+            }
+        }
+
+        // Also try 'updated_at' in raw (in case it's stored as 'updated_at' in raw)
+        if (isset($data['raw']['updated_at']) && !empty($data['raw']['updated_at'])) {
+            try {
+                return Carbon::parse($data['raw']['updated_at']);
+            } catch (\Exception $e) {
+                // Invalid date format
+            }
+        }
+
+        return null;
     }
 }

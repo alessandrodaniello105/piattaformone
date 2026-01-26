@@ -21,9 +21,13 @@ use Illuminate\Support\Facades\Route;
 
 // Fatture in Cloud OAuth routes
 Route::prefix('fic/oauth')->group(function () {
+    // Redirect requires authentication to get user and tenant info
     Route::get('/redirect', [FattureInCloudOAuthController::class, 'redirect'])
+        ->middleware('auth:sanctum')
         ->name('fic.oauth.redirect');
     
+    // Callback doesn't require authentication (called by external OAuth provider)
+    // User info is retrieved from state parameter stored in Redis
     Route::get('/callback', [FattureInCloudOAuthController::class, 'callback'])
         ->name('fic.oauth.callback');
 });

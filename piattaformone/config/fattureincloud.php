@@ -40,10 +40,33 @@ return [
     | TODO: Implement multi-tenant system to switch between companies.
     |
     */
-    'company_id' => 1543167, // Hardcoded for now, will be multi-tenant in future
+    'company_id' => env('FIC_COMPANY_ID'), // Hardcoded for now, will be multi-tenant in future
     
     'access_token' => env('FIC_ACCESS_TOKEN'),
     'refresh_token' => env('FIC_REFRESH_TOKEN'),
+    
+    /*
+    |--------------------------------------------------------------------------
+    | OAuth Scopes
+    |--------------------------------------------------------------------------
+    |
+    | Default OAuth scopes to request when authenticating with Fatture in Cloud.
+    | These are used as fallback if team doesn't have custom scopes configured.
+    |
+    | Available scopes:
+    | - entity:clients:r / entity:clients:a
+    | - entity:suppliers:r / entity:suppliers:a
+    | - issued_documents:invoices:r / issued_documents:invoices:a
+    | - issued_documents:quotes:r / issued_documents:quotes:a
+    | - settings:all
+    |
+    */
+    'scopes' => [
+        'entity:clients:r',
+        'entity:suppliers:r',
+        'issued_documents:quotes:r',
+        'issued_documents:invoices:r',
+    ],
     
     /*
     |--------------------------------------------------------------------------

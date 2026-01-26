@@ -1,6 +1,6 @@
 <script setup>
-import { ref } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { ref, computed } from 'vue';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import ApplicationMark from '@/Components/ApplicationMark.vue';
 import Banner from '@/Components/Banner.vue';
 import Dropdown from '@/Components/Dropdown.vue';
@@ -13,6 +13,11 @@ defineProps({
 });
 
 const showingNavigationDropdown = ref(false);
+
+// Get FIC connection status from shared props
+const page = usePage();
+const ficConnected = computed(() => page.props.ficConnection?.connected === true);
+const ficNeedsOAuth = computed(() => page.props.ficConnection?.needs_oauth === true);
 
 const switchToTeam = (team) => {
     router.put(route('current-team.update'), {
@@ -58,6 +63,24 @@ const logout = () => {
                         </div>
 
                         <div class="hidden sm:flex sm:items-center sm:ms-6">
+                            <!-- FIC Connection Badge -->
+                            <div v-if="$page.props.ficConnection" class="me-4">
+                                <a
+                                    :href="ficNeedsOAuth ? '/api/fic/oauth/redirect' : '#'"
+                                    class="inline-flex items-center text-xs px-2.5 py-1 rounded-full font-medium transition"
+                                    :class="ficConnected
+                                        ? 'bg-green-100 text-green-800 cursor-default'
+                                        : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200 cursor-pointer'"
+                                    :title="ficConnected ? 'FIC connesso' : 'Clicca per connettere FIC'"
+                                >
+                                    <span
+                                        class="w-2 h-2 rounded-full mr-1.5"
+                                        :class="ficConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500 animate-pulse'"
+                                    ></span>
+                                    <span>{{ ficConnected ? 'FIC' : 'FIC non connesso' }}</span>
+                                </a>
+                            </div>
+
                             <div class="ms-3 relative">
                                 <!-- Teams Dropdown -->
                                 <Dropdown v-if="$page.props.jetstream.hasTeamFeatures" align="right" width="60">

@@ -559,7 +559,7 @@ class FicApiService
                 'number' => $data['number'] ?? null,
                 'status' => $data['status'] ?? null,
                 'total_gross' => $data['amount_net'] ?? $data['total'] ?? $data['total_gross'] ?? null,
-                'fic_date' => isset($data['date']) ? new \Carbon\Carbon($data['date']) : null,
+                'fic_date' => $this->extractDateFromData($data),
                 'fic_created_at' => isset($data['created_at']) ? new \Carbon\Carbon($data['created_at']) : null,
                 'raw' => $data,
             ];
@@ -636,7 +636,7 @@ class FicApiService
                 'number' => $data['number'] ?? null,
                 'status' => $data['status'] ?? null,
                 'total_gross' => $data['amount_net'] ?? $data['total'] ?? $data['total_gross'] ?? null,
-                'fic_date' => isset($data['date']) ? new \Carbon\Carbon($data['date']) : null,
+                'fic_date' => $this->extractDateFromData($data),
                 'fic_created_at' => isset($data['created_at']) ? new \Carbon\Carbon($data['created_at']) : null,
                 'raw' => $data,
             ];
@@ -1562,5 +1562,30 @@ class FicApiService
         ]);
 
         return $data;
+    }
+
+    /**
+     * Extract date from FIC API response data.
+     * Checks multiple possible field names where the date might be stored.
+     *
+     * @param  array  $data  The data array from FIC API response
+     * @return \Carbon\Carbon|null
+     */
+    private function extractDateFromData(array $data): ?\Carbon\Carbon
+    {
+        // Try common date field names
+        $dateFields = ['date', 'fic_date', 'document_date', 'issued_date'];
+        
+        foreach ($dateFields as $field) {
+            if (isset($data[$field]) && !empty($data[$field])) {
+                try {
+                    return new \Carbon\Carbon($data[$field]);
+                } catch (\Exception $e) {
+                    // Invalid date format, continue to next field
+                }
+            }
+        }
+
+        return null;
     }
 }

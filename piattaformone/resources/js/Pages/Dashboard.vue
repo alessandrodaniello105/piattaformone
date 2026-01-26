@@ -1,9 +1,14 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import SecondaryButton from '@/Components/SecondaryButton.vue';
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
+
+// Get page props for FIC connection status
+const page = usePage();
+const ficConnection = computed(() => page.props.ficConnection);
+const showFicWarning = computed(() => ficConnection.value?.needs_oauth === true);
 
 // Reactive state
 const events = ref([]);
@@ -461,6 +466,42 @@ onUnmounted(() => {
 
         <div class="py-12">
             <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
+                <!-- FIC Connection Warning Banner -->
+                <div
+                    v-if="showFicWarning"
+                    class="bg-yellow-50 border-l-4 border-yellow-400 p-4 shadow-sm sm:rounded-lg"
+                >
+                    <div class="flex items-start">
+                        <div class="flex-shrink-0">
+                            <svg class="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+                            </svg>
+                        </div>
+                        <div class="ml-3 flex-1">
+                            <h3 class="text-sm font-medium text-yellow-800">
+                                Connessione a Fatture in Cloud richiesta
+                            </h3>
+                            <div class="mt-2 text-sm text-yellow-700">
+                                <p>
+                                    Per utilizzare le funzionalità di sincronizzazione con Fatture in Cloud,
+                                    è necessario autorizzare l'applicazione.
+                                </p>
+                            </div>
+                            <div class="mt-4">
+                                <a
+                                    href="/api/fic/oauth/redirect"
+                                    class="inline-flex items-center px-4 py-2 bg-yellow-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-yellow-700 active:bg-yellow-800 focus:outline-none focus:border-yellow-800 focus:ring focus:ring-yellow-300 disabled:opacity-25 transition"
+                                >
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                                    </svg>
+                                    Connetti a Fatture in Cloud
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Sync Button Section -->
                 <div class="bg-white overflow-hidden shadow-xl sm:rounded-lg p-6">
                     <div class="flex items-center justify-between">

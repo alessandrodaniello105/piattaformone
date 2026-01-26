@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class FicAccount extends Model
@@ -64,6 +65,16 @@ class FicAccount extends Model
     }
 
     /**
+     * Get the team that owns this FIC account.
+     *
+     * @return BelongsTo<\App\Models\Team, FicAccount>
+     */
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Team::class, 'tenant_id');
+    }
+
+    /**
      * Get the subscriptions for the account.
      *
      * @return HasMany<FicSubscription>
@@ -121,5 +132,77 @@ class FicAccount extends Model
     public function events(): HasMany
     {
         return $this->hasMany(FicEvent::class, 'fic_account_id');
+    }
+
+    /**
+     * Check if the access token is expired.
+     *
+     * @return bool
+     */
+    public function isTokenExpired(): bool
+    {
+        if (!$this->token_expires_at) {
+            return true;
+        }
+
+        return $this->token_expires_at->isPast();
+    }
+
+    /**
+     * Check if the account needs re-authentication.
+     *
+     * Returns true if the token is expired, the account status indicates
+     * a problem, or the access token is missing.
+     *
+     * @return bool
+     */
+    public function needsReauth(): bool
+    {
+        return $this->isTokenExpired()
+            || in_array($this->status, ['needs_refresh', 'revoked', 'suspended'])
+            || empty($this->access_token);
+    }
+
+    /**
+     * Scope to get only active accounts with valid tokens.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('status', 'active')
+            ->whereNotNull('access_token')
+            ->where(function ($q) {
+                $q->whereNull('token_expires_at')
+                    ->orWhere('token_expires_at', '>', now());
+            });
+    }
+
+    /**
+     * Scope to get accounts that need reconnection.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function scopeDisconnected($query)
+    {
+        return $query->whereIn('status', ['disconnected', 'revoked', 'suspended']);
+    }
+
+    /**
+     * Scope to filter accounts by team/tenant ID.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $query
+     * @param  int|string|null  $teamId
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function scopeForTeam($query, $teamId)
+    {
+        if ($teamId === null) {
+            return $query->whereNull('tenant_id');
+        }
+
+        return $query->where('tenant_id', $teamId);
     }
 }

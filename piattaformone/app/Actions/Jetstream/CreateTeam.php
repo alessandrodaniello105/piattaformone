@@ -21,16 +21,38 @@ class CreateTeam implements CreatesTeams
     {
         Gate::forUser($user)->authorize('create', Jetstream::newTeamModel());
 
-        Validator::make($input, [
+        $validationRules = [
             'name' => ['required', 'string', 'max:255'],
-        ])->validateWithBag('createTeam');
+            // Optional FIC credentials
+            'fic_client_id' => ['nullable', 'string', 'max:255'],
+            'fic_client_secret' => ['nullable', 'string'],
+            'fic_redirect_uri' => ['nullable', 'url', 'max:500'],
+            'fic_company_id' => ['nullable', 'string', 'max:255'],
+            'fic_scopes' => ['nullable', 'array'],
+            'fic_scopes.*' => ['string', 'in:entity:clients:r,entity:clients:a,entity:suppliers:r,entity:suppliers:a,issued_documents:invoices:r,issued_documents:invoices:a,issued_documents:quotes:r,issued_documents:quotes:a,settings:all'],
+        ];
+
+        Validator::make($input, $validationRules)->validateWithBag('createTeam');
 
         AddingTeam::dispatch($user);
 
-        $user->switchTeam($team = $user->ownedTeams()->create([
+        // Prepare team data
+        $teamData = [
             'name' => $input['name'],
             'personal_team' => false,
-        ]));
+        ];
+
+        // Add FIC credentials if provided
+        if (!empty($input['fic_client_id']) && !empty($input['fic_client_secret'])) {
+            $teamData['fic_client_id'] = $input['fic_client_id'];
+            $teamData['fic_client_secret'] = $input['fic_client_secret'];
+            $teamData['fic_redirect_uri'] = $input['fic_redirect_uri'] ?? config('fattureincloud.redirect_uri');
+            $teamData['fic_company_id'] = $input['fic_company_id'] ?? null;
+            $teamData['fic_scopes'] = $input['fic_scopes'] ?? config('fattureincloud.scopes', []);
+            $teamData['fic_configured_at'] = now();
+        }
+
+        $user->switchTeam($team = $user->ownedTeams()->create($teamData));
 
         return $team;
     }

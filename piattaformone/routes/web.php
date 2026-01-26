@@ -45,13 +45,18 @@ Route::middleware([
         return Inertia::render('Fic/CreateSubscription');
     })->name('fic.subscriptions.create');
 
-    Route::get('/fic/data', function () {
-        return Inertia::render('Fic/SyncedData');
-    })->name('fic.data');
+    Route::get('/fic/data', [App\Http\Controllers\FicSyncController::class, 'index'])
+        ->name('fic.data');
 
     Route::get('/fic/documents/generate', [App\Http\Controllers\FicDocumentController::class, 'index'])
         ->name('fic.documents.generate');
 
     Route::get('/fic/documents/generate/batch', [App\Http\Controllers\FicDocumentController::class, 'batch'])
         ->name('fic.documents.generate.batch');
+    
+    // Team FIC Settings routes
+    Route::put('/teams/{team}/fic-settings', [App\Http\Controllers\TeamFicSettingsController::class, 'update'])
+        ->name('teams.fic-settings.update');
+    Route::delete('/teams/{team}/fic-settings', [App\Http\Controllers\TeamFicSettingsController::class, 'destroy'])
+        ->name('teams.fic-settings.destroy');
 });

@@ -1,20 +1,32 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, computed } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import SecondaryButton from '@/Components/SecondaryButton.vue';
 
+// Props from Inertia (initial data from backend)
+const props = defineProps({
+    initialClients: {
+        type: Array,
+        default: () => [],
+    },
+    initialClientsMeta: {
+        type: Object,
+        default: () => ({ total: 0, current_page: 1, last_page: 1, per_page: 25 }),
+    },
+});
+
 // Active tab
 const activeTab = ref('clients');
 
-// Data state
-const clients = ref([]);
+// Data state - initialize clients from props
+const clients = ref(props.initialClients);
 const suppliers = ref([]);
 const quotes = ref([]);
 const invoices = ref([]);
 
-// Pagination state
-const clientsMeta = ref({ total: 0, current_page: 1, last_page: 1 });
+// Pagination state - initialize clientsMeta from props
+const clientsMeta = ref(props.initialClientsMeta);
 const suppliersMeta = ref({ total: 0, current_page: 1, last_page: 1 });
 const quotesMeta = ref({ total: 0, current_page: 1, last_page: 1 });
 const invoicesMeta = ref({ total: 0, current_page: 1, last_page: 1 });
@@ -234,9 +246,8 @@ const formatCurrency = (value) => {
 };
 
 // Lifecycle
-onMounted(() => {
-    fetchClients();
-});
+// Note: Clients are now loaded from Inertia props (initialClients, initialClientsMeta)
+// No need to fetch on mount, improving initial page load performance
 </script>
 
 <template>
