@@ -58,6 +58,10 @@ const compiling = ref(false);
 const error = ref(null);
 const success = ref(null);
 
+// Unmapped variables modal
+const showUnmappedModal = ref(false);
+const unmappedVariables = ref([]);
+
 // Resource tabs
 const resourceTabs = [
     { id: 'clients', label: 'Clienti', icon: '👥' },
@@ -365,8 +369,35 @@ const proceedToCompile = async () => {
         return;
     }
 
-    // Skip to step 4 (we'll compile directly)
+    // Check for unmapped variables
+    const unmapped = extractedVariables.value.filter(v => !variableValues.value[v] || variableValues.value[v] === '');
+
+    if (unmapped.length > 0) {
+        // Show modal with options
+        unmappedVariables.value = unmapped;
+        showUnmappedModal.value = true;
+        return;
+    }
+
+    // All variables mapped, proceed to compile
     await compileDocument();
+};
+
+// Modal actions
+const proceedAnywayWithCompile = async () => {
+    showUnmappedModal.value = false;
+    await compileDocument();
+};
+
+const switchToManualMapping = () => {
+    showUnmappedModal.value = false;
+    currentStep.value = 3;
+    fetchResources(activeResourceTab.value);
+};
+
+const cancelCompile = () => {
+    showUnmappedModal.value = false;
+    unmappedVariables.value = [];
 };
 
 // Navigation
@@ -407,6 +438,8 @@ const reset = () => {
         supplier: null,
     };
     requiredResourceTypes.value = [];
+    showUnmappedModal.value = false;
+    unmappedVariables.value = [];
     if (fileInput.value) {
         fileInput.value.value = '';
     }
@@ -458,7 +491,7 @@ const mappedCount = computed(() => {
     <AppLayout title="Genera Documento">
         <template #header>
             <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                Genera Documento da Template DOCX
+                Compila documento da Template DOCX
             </h2>
         </template>
 
@@ -516,7 +549,12 @@ const mappedCount = computed(() => {
                 <div class="bg-white overflow-hidden shadow-xl sm:rounded-lg">
                     <!-- Step 1: File Upload -->
                     <div v-if="currentStep === 1" class="p-6">
-                        <h3 class="text-lg font-medium text-gray-900 mb-4">Step 1: Carica Template DOCX</h3>
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-medium text-gray-900">Step 1: Carica Template DOCX</h3>
+                            <SecondaryButton @click="router.visit('/fic/documents/generate/batch')">
+                                📋 Modalità Batch
+                            </SecondaryButton>
+                        </div>
                         <div class="space-y-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
@@ -533,7 +571,7 @@ const mappedCount = computed(() => {
                                     File selezionato: <strong>{{ fileName }}</strong>
                                 </p>
                                 <p class="mt-1 text-xs text-gray-500">
-                                    Seleziona un file DOCX (max 10MB) con variabili nel formato ${variabile}
+                                    Seleziona un file DOCX (max 10MB) con variabili nel formato ${risorsa.variabile}. Esempio: ${client.name}
                                 </p>
                             </div>
                             <div class="flex gap-4">
@@ -802,6 +840,74 @@ const mappedCount = computed(() => {
                         <h3 class="text-lg font-medium text-gray-900 mb-2">Documento Compilato con Successo!</h3>
                         <p class="text-sm text-gray-500 mb-6">Il file è stato scaricato automaticamente.</p>
                         <PrimaryButton @click="reset">Crea Nuovo Documento</PrimaryButton>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Unmapped Variables Modal -->
+        <div
+            v-if="showUnmappedModal"
+            class="fixed inset-0 z-50 overflow-y-auto"
+            aria-labelledby="modal-title"
+            role="dialog"
+            aria-modal="true"
+        >
+            <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                <!-- Background overlay -->
+                <div
+                    class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
+                    aria-hidden="true"
+                    @click="cancelCompile"
+                ></div>
+
+                <!-- Center modal -->
+                <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+                <!-- Modal panel -->
+                <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <div class="sm:flex sm:items-start">
+                            <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 sm:mx-0 sm:h-10 sm:w-10">
+                                <!-- Warning icon -->
+                                <svg class="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                            </div>
+                            <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left flex-1">
+                                <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">
+                                    Variabili Non Mappate
+                                </h3>
+                                <div class="mt-2">
+                                    <p class="text-sm text-gray-500 mb-3">
+                                        {{ unmappedVariables.length }} variabil{{ unmappedVariables.length > 1 ? 'i' : 'e' }} non {{ unmappedVariables.length > 1 ? 'sono state mappate' : 'è stata mappata' }} automaticamente.
+                                        {{ unmappedVariables.length > 1 ? 'Queste variabili rimarranno' : 'Questa variabile rimarrà' }} invariate nel documento finale.
+                                    </p>
+                                    <div class="bg-gray-50 rounded-md p-3 max-h-32 overflow-y-auto">
+                                        <div class="space-y-1">
+                                            <div
+                                                v-for="variable in unmappedVariables"
+                                                :key="variable"
+                                                class="text-sm font-mono text-red-600"
+                                            >
+                                            {{ `$\{${variable}\}` }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse gap-2">
+                        <PrimaryButton @click="proceedAnywayWithCompile" class="w-full sm:w-auto">
+                            Procedi Comunque
+                        </PrimaryButton>
+                        <SecondaryButton @click="switchToManualMapping" class="w-full sm:w-auto mt-3 sm:mt-0">
+                            Mappatura Manuale
+                        </SecondaryButton>
+                        <SecondaryButton @click="cancelCompile" class="w-full sm:w-auto mt-3 sm:mt-0">
+                            Annulla
+                        </SecondaryButton>
                     </div>
                 </div>
             </div>

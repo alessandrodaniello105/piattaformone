@@ -188,7 +188,7 @@ const getMaxChartValue = () => {
     ];
     // Find the actual maximum value (or 1 if all are 0 to avoid division by zero)
     const max = allValues.length > 0 ? Math.max(...allValues, 1) : 1;
-    console.log('Max chart value:', max, 'All values:', allValues);
+    // console.log('Max chart value:', max, 'All values:', allValues);
     return max;
 };
 
@@ -225,7 +225,7 @@ const getBarHeightPixels = (count) => {
     // Example: if max = 5, count = 5, then height = (5/5) * 256 = 256px (100%)
     // If max = 5, count = 1, then height = (1/5) * 256 = 51.2px (20%)
     const heightPixels = (numCount / max) * CONTAINER_HEIGHT;
-    console.log('Bar height pixels:', { numCount, max, heightPixels });
+    // console.log('Bar height pixels:', { numCount, max, heightPixels });
     
     return Math.max(heightPixels, 2); // Minimum 2px
 };
@@ -306,10 +306,10 @@ const setupEchoListeners = () => {
                 const currentState = connection.state;
                 if (currentState === 'connected') {
                     echoConnected.value = true;
-                    console.log('Echo already connected (state:', currentState, ')');
+                    // console.log('Echo already connected (state:', currentState, ')');
                 } else {
                     echoConnected.value = false;
-                    console.log('Echo connection state:', currentState);
+                    // console.log('Echo connection state:', currentState);
                 }
             };
             

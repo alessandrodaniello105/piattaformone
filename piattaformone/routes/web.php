@@ -51,4 +51,7 @@ Route::middleware([
 
     Route::get('/fic/documents/generate', [App\Http\Controllers\FicDocumentController::class, 'index'])
         ->name('fic.documents.generate');
+
+    Route::get('/fic/documents/generate/batch', [App\Http\Controllers\FicDocumentController::class, 'batch'])
+        ->name('fic.documents.generate.batch');
 });

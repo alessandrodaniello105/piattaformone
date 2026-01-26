@@ -94,4 +94,6 @@ Route::prefix('fic/documents')->group(function () {
         ->name('fic.documents.compile');
     Route::post('/compile-mapping', [FicDocumentController::class, 'compileWithMapping'])
         ->name('fic.documents.compile-mapping');
+    Route::post('/compile-batch', [FicDocumentController::class, 'compileBatch'])
+        ->name('fic.documents.compile-batch');
 });

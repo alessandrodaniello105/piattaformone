@@ -49,7 +49,7 @@ const echoConfig = {
     disableStats: true,
 };
 
-console.log('Echo configuration:', echoConfig);
+// console.log('Echo configuration:', echoConfig);
 console.log('Reverb URL:', `${reverbScheme}://${reverbHost}:${reverbPort}`);
 
 try {

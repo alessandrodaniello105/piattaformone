@@ -14,6 +14,7 @@ use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use ZipArchive;
 
 class FicDocumentController extends Controller
 {
@@ -23,6 +24,14 @@ class FicDocumentController extends Controller
     public function index(): InertiaResponse
     {
         return Inertia::render('Fic/GenerateDocument');
+    }
+
+    /**
+     * Show the batch document generation page.
+     */
+    public function batch(): InertiaResponse
+    {
+        return Inertia::render('Fic/GenerateDocumentBatch');
     }
 
     /**
@@ -118,6 +127,118 @@ class FicDocumentController extends Controller
                 'fields' => $flattened,
             ],
         ]);
+    }
+
+    /**
+     * Compile multiple DOCX documents in batch mode and return as ZIP.
+     */
+    public function compileBatch(Request $request): JsonResponse|BinaryFileResponse
+    {
+        try {
+            $validated = $request->validate([
+                'file_token' => 'required|string',
+                'resources' => 'required|array|min:1',
+                'resources.*.type' => 'required|string|in:invoice,client,quote,supplier',
+                'resources.*.id' => 'required|integer',
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        }
+
+        try {
+            // Reconstruct the file path from token
+            $tempPath = 'temp/'.$validated['file_token'];
+            $fullTempPath = Storage::disk('local')->path($tempPath);
+
+            // Verify the template file exists
+            if (! file_exists($fullTempPath) || ! is_readable($fullTempPath)) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Template file not found. Please upload again.',
+                ], 404);
+            }
+
+            $replacer = new DocxVariableReplacer;
+            $compiledFiles = [];
+
+            // Compile a document for each resource
+            foreach ($validated['resources'] as $resource) {
+                $data = $this->getFicData($resource['type'], $resource['id']);
+
+                if (! $data) {
+                    // Skip if resource not found
+                    continue;
+                }
+
+                // Create a temporary copy of the template for this resource
+                $resourceTempPath = 'temp/'.uniqid().'_'.$resource['type'].'_'.$resource['id'].'.docx';
+                Storage::disk('local')->copy($tempPath, $resourceTempPath);
+                $resourceFullPath = Storage::disk('local')->path($resourceTempPath);
+
+                // Compile this document
+                $compiledPath = $replacer->replaceVariables(
+                    $resourceFullPath,
+                    [$resource['type'] => $data]
+                );
+
+                $compiledFiles[] = [
+                    'path' => $compiledPath,
+                    'filename' => $resource['type'].'_'.$resource['id'].'_'.date('Ymd_His').'.docx',
+                ];
+
+                // Clean up the temp copy
+                Storage::disk('local')->delete($resourceTempPath);
+            }
+
+            // Create ZIP archive
+            $zipPath = storage_path('app/temp/batch_'.uniqid().'.zip');
+            $zip = new ZipArchive;
+
+            if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+                // Clean up compiled files
+                foreach ($compiledFiles as $file) {
+                    if (file_exists($file['path'])) {
+                        unlink($file['path']);
+                    }
+                }
+
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Failed to create ZIP archive',
+                ], 500);
+            }
+
+            // Add each compiled document to ZIP
+            foreach ($compiledFiles as $file) {
+                $zip->addFile($file['path'], $file['filename']);
+            }
+
+            $zip->close();
+
+            // Clean up the uploaded template file
+            Storage::disk('local')->delete($tempPath);
+
+            // Clean up compiled files
+            foreach ($compiledFiles as $file) {
+                if (file_exists($file['path'])) {
+                    unlink($file['path']);
+                }
+            }
+
+            // Return the ZIP file as download
+            $zipFilename = 'batch_documents_'.date('Y-m-d_His').'.zip';
+
+            return response()->download($zipPath, $zipFilename)->deleteFileAfterSend(true);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Failed to compile batch documents: '.$e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
