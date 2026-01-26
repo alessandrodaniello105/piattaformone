@@ -284,19 +284,19 @@ class DocxVariableReplacer
 
         // Replace all variables in the template
         foreach ($variableMapping as $variable => $value) {
-            // Skip if value is null (but allow empty strings for intentional clearing)
-            if ($value === null) {
-                continue;
-            }
-
-            $formattedValue = $this->formatValue($value);
+            // Convert null/empty to empty string explicitly
+            // This ensures that mapped variables with empty values are cleared from the document
+            $formattedValue = ($value === null || $value === '') ? '' : $this->formatValue($value);
 
             // Log for debugging
             \Log::debug('Replacing variable', [
                 'variable' => $variable,
                 'value' => $formattedValue,
+                'is_empty' => $formattedValue === '',
             ]);
 
+            // Always call setValue, even for empty values
+            // This replaces the variable placeholder with the empty string
             $templateProcessor->setValue($variable, $formattedValue);
         }
 

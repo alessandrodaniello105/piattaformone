@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\FicAccount;
 use App\Models\FicClient;
 use App\Models\FicInvoice;
 use App\Models\FicQuote;
@@ -106,7 +107,7 @@ class FicDocumentController extends Controller
             ], 422);
         }
 
-        $data = $this->getFicData($validated['type'], $validated['id']);
+        $data = $this->getFicData($request, $validated['type'], $validated['id']);
 
         if (! $data) {
             return response()->json([
@@ -167,7 +168,7 @@ class FicDocumentController extends Controller
 
             // Compile a document for each resource
             foreach ($validated['resources'] as $resource) {
-                $data = $this->getFicData($resource['type'], $resource['id']);
+                $data = $this->getFicData($request, $resource['type'], $resource['id']);
 
                 if (! $data) {
                     // Skip if resource not found
@@ -316,7 +317,7 @@ class FicDocumentController extends Controller
 
         try {
             // Get the FIC data based on type
-            $data = $this->getFicData($validated['data_type'], $validated['data_id']);
+            $data = $this->getFicData($request, $validated['data_type'], $validated['data_id']);
 
             if (! $data) {
                 return response()->json([
@@ -365,21 +366,33 @@ class FicDocumentController extends Controller
     }
 
     /**
-     * Get FIC data by type and ID.
+     * Get FIC data by type and ID, filtered by current team.
      */
-    private function getFicData(string $type, int $id): FicInvoice|FicClient|FicQuote|FicSupplier|null
+    private function getFicData(Request $request, string $type, int $id): FicInvoice|FicClient|FicQuote|FicSupplier|null
     {
+        $teamId = $request->user()->current_team_id;
+
+        // Get the active FIC account for the current team
+        $account = FicAccount::forTeam($teamId)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$account) {
+            return null;
+        }
+
+        // Query the resource filtered by fic_account_id to ensure team isolation
         return match ($type) {
-            'invoice' => FicInvoice::find($id),
-            'client' => FicClient::find($id),
-            'quote' => FicQuote::find($id),
-            'supplier' => FicSupplier::find($id),
+            'invoice' => FicInvoice::where('fic_account_id', $account->id)->where('id', $id)->first(),
+            'client' => FicClient::where('fic_account_id', $account->id)->where('id', $id)->first(),
+            'quote' => FicQuote::where('fic_account_id', $account->id)->where('id', $id)->first(),
+            'supplier' => FicSupplier::where('fic_account_id', $account->id)->where('id', $id)->first(),
             default => null,
         };
     }
 
     /**
-     * Get available FIC data for selection.
+     * Get available FIC data for selection, filtered by current team.
      */
     public function getData(Request $request): JsonResponse
     {
@@ -400,12 +413,32 @@ class FicDocumentController extends Controller
         $type = $validated['type'];
         $page = $validated['page'] ?? 1;
         $perPage = $validated['per_page'] ?? 25;
+        $teamId = $request->user()->current_team_id;
 
+        // Get the active FIC account for the current team
+        $account = FicAccount::forTeam($teamId)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$account) {
+            return response()->json([
+                'success' => true,
+                'data' => [],
+                'meta' => [
+                    'current_page' => 1,
+                    'last_page' => 1,
+                    'per_page' => $perPage,
+                    'total' => 0,
+                ],
+            ]);
+        }
+
+        // Query data filtered by fic_account_id to ensure team isolation
         $data = match ($type) {
-            'invoice' => FicInvoice::paginate($perPage, ['*'], 'page', $page),
-            'client' => FicClient::paginate($perPage, ['*'], 'page', $page),
-            'quote' => FicQuote::paginate($perPage, ['*'], 'page', $page),
-            'supplier' => FicSupplier::paginate($perPage, ['*'], 'page', $page),
+            'invoice' => FicInvoice::where('fic_account_id', $account->id)->paginate($perPage, ['*'], 'page', $page),
+            'client' => FicClient::where('fic_account_id', $account->id)->paginate($perPage, ['*'], 'page', $page),
+            'quote' => FicQuote::where('fic_account_id', $account->id)->paginate($perPage, ['*'], 'page', $page),
+            'supplier' => FicSupplier::where('fic_account_id', $account->id)->paginate($perPage, ['*'], 'page', $page),
             default => null,
         };
 

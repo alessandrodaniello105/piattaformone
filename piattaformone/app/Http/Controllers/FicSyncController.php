@@ -43,16 +43,18 @@ class FicSyncController extends Controller
     public function index(Request $request): InertiaResponse
     {
         try {
+            $teamId = $request->user()->current_team_id;
+
             // Get initial clients data (first page, 25 per page)
             // Try cache first
-            $cached = $this->cacheService->get('clients', 1, 25);
+            $cached = $this->cacheService->get('clients', 1, 25, $teamId);
 
             if ($cached !== null) {
                 $clientsData = $cached['data'];
                 $clientsMeta = $cached['meta'];
             } else {
                 // Fetch from database if not cached - filter by current team
-                $account = FicAccount::forTeam($request->user()->current_team_id)
+                $account = FicAccount::forTeam($teamId)
                     ->where('status', 'active')
                     ->first();
 
@@ -70,7 +72,7 @@ class FicSyncController extends Controller
                     ];
 
                     // Store in cache
-                    $this->cacheService->put('clients', 1, 25, $clientsData, $clientsMeta);
+                    $this->cacheService->put('clients', 1, 25, $clientsData, $clientsMeta, $teamId);
                 } else {
                     $clientsData = [];
                     $clientsMeta = ['total' => 0, 'current_page' => 1, 'last_page' => 1, 'per_page' => 25];
@@ -105,8 +107,10 @@ class FicSyncController extends Controller
     public function initialSync(Request $request): JsonResponse
     {
         try {
+            $teamId = $request->user()->current_team_id;
+
             // Get the active FIC account for the current team
-            $account = FicAccount::forTeam($request->user()->current_team_id)
+            $account = FicAccount::forTeam($teamId)
                 ->where('status', 'active')
                 ->first();
 
@@ -278,8 +282,8 @@ class FicSyncController extends Controller
             // Update last_sync_at timestamp
             $account->update(['last_sync_at' => now()]);
 
-            // Invalidate all cache after sync
-            $this->cacheService->invalidateAll();
+            // Invalidate all cache after sync for this team
+            $this->cacheService->invalidateAll($teamId);
 
             return response()->json([
                 'success' => true,
@@ -627,18 +631,19 @@ class FicSyncController extends Controller
     public function clients(Request $request): JsonResponse
     {
         try {
+            $teamId = $request->user()->current_team_id;
             $perPage = (int) ($request->input('per_page', 25));
             $perPage = min(max($perPage, 1), 100);
             $page = (int) ($request->input('page', 1));
 
             // Try to get from cache first
-            $cached = $this->cacheService->get('clients', $page, $perPage);
+            $cached = $this->cacheService->get('clients', $page, $perPage, $teamId);
             if ($cached !== null) {
                 return response()->json($cached);
             }
 
             // Get the active FIC account for the current team
-            $account = FicAccount::forTeam($request->user()->current_team_id)
+            $account = FicAccount::forTeam($teamId)
                 ->where('status', 'active')
                 ->first();
 
@@ -664,7 +669,7 @@ class FicSyncController extends Controller
             ];
 
             // Store in cache
-            $this->cacheService->put('clients', $page, $perPage, $response['data'], $response['meta']);
+            $this->cacheService->put('clients', $page, $perPage, $response['data'], $response['meta'], $teamId);
 
             return response()->json($response);
         } catch (\Exception $e) {
@@ -687,18 +692,19 @@ class FicSyncController extends Controller
     public function quotes(Request $request): JsonResponse
     {
         try {
+            $teamId = $request->user()->current_team_id;
             $perPage = (int) ($request->input('per_page', 25));
             $perPage = min(max($perPage, 1), 100);
             $page = (int) ($request->input('page', 1));
 
             // Try to get from cache first
-            $cached = $this->cacheService->get('quotes', $page, $perPage);
+            $cached = $this->cacheService->get('quotes', $page, $perPage, $teamId);
             if ($cached !== null) {
                 return response()->json($cached);
             }
 
             // Get the active FIC account for the current team
-            $account = FicAccount::forTeam($request->user()->current_team_id)
+            $account = FicAccount::forTeam($teamId)
                 ->where('status', 'active')
                 ->first();
 
@@ -724,7 +730,7 @@ class FicSyncController extends Controller
             ];
 
             // Store in cache
-            $this->cacheService->put('quotes', $page, $perPage, $response['data'], $response['meta']);
+            $this->cacheService->put('quotes', $page, $perPage, $response['data'], $response['meta'], $teamId);
 
             return response()->json($response);
         } catch (\Exception $e) {
@@ -747,18 +753,19 @@ class FicSyncController extends Controller
     public function suppliers(Request $request): JsonResponse
     {
         try {
+            $teamId = $request->user()->current_team_id;
             $perPage = (int) ($request->input('per_page', 25));
             $perPage = min(max($perPage, 1), 100);
             $page = (int) ($request->input('page', 1));
 
             // Try to get from cache first
-            $cached = $this->cacheService->get('suppliers', $page, $perPage);
+            $cached = $this->cacheService->get('suppliers', $page, $perPage, $teamId);
             if ($cached !== null) {
                 return response()->json($cached);
             }
 
             // Get the active FIC account for the current team
-            $account = FicAccount::forTeam($request->user()->current_team_id)
+            $account = FicAccount::forTeam($teamId)
                 ->where('status', 'active')
                 ->first();
 
@@ -784,7 +791,7 @@ class FicSyncController extends Controller
             ];
 
             // Store in cache
-            $this->cacheService->put('suppliers', $page, $perPage, $response['data'], $response['meta']);
+            $this->cacheService->put('suppliers', $page, $perPage, $response['data'], $response['meta'], $teamId);
 
             return response()->json($response);
         } catch (\Exception $e) {
@@ -807,18 +814,19 @@ class FicSyncController extends Controller
     public function invoices(Request $request): JsonResponse
     {
         try {
+            $teamId = $request->user()->current_team_id;
             $perPage = (int) ($request->input('per_page', 25));
             $perPage = min(max($perPage, 1), 100);
             $page = (int) ($request->input('page', 1));
 
             // Try to get from cache first
-            $cached = $this->cacheService->get('invoices', $page, $perPage);
+            $cached = $this->cacheService->get('invoices', $page, $perPage, $teamId);
             if ($cached !== null) {
                 return response()->json($cached);
             }
 
             // Get the active FIC account for the current team
-            $account = FicAccount::forTeam($request->user()->current_team_id)
+            $account = FicAccount::forTeam($teamId)
                 ->where('status', 'active')
                 ->first();
 
@@ -844,7 +852,7 @@ class FicSyncController extends Controller
             ];
 
             // Store in cache
-            $this->cacheService->put('invoices', $page, $perPage, $response['data'], $response['meta']);
+            $this->cacheService->put('invoices', $page, $perPage, $response['data'], $response['meta'], $teamId);
 
             return response()->json($response);
         } catch (\Exception $e) {

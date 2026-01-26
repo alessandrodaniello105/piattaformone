@@ -265,7 +265,7 @@ const getFieldValue = (fieldPath) => {
 // Step 3: Compile document
 const compileDocument = async () => {
     // Check if all variables are mapped (only in manual mapping mode)
-    const unmapped = extractedVariables.value.filter(v => !variableValues.value[v] || variableValues.value[v] === '');
+    const unmapped = extractedVariables.value.filter(v => !variableMapping.value[v]);
 
     if (!simpleMapping.value && unmapped.length > 0) {
         error.value = `Ci sono ${unmapped.length} variabili non mappate. Mappa tutte le variabili prima di compilare.`;
@@ -370,7 +370,7 @@ const proceedToCompile = async () => {
     }
 
     // Check for unmapped variables
-    const unmapped = extractedVariables.value.filter(v => !variableValues.value[v] || variableValues.value[v] === '');
+    const unmapped = extractedVariables.value.filter(v => !variableMapping.value[v]);
 
     if (unmapped.length > 0) {
         // Show modal with options
@@ -479,11 +479,12 @@ const canProceedToStep3 = computed(() => {
 });
 
 const canCompile = computed(() => {
-    return Object.values(variableValues.value).every(v => v !== '' && v !== null);
+    // Check if all variables are mapped (not if values are filled, since values can be empty)
+    return extractedVariables.value.every(v => variableMapping.value[v]);
 });
 
 const mappedCount = computed(() => {
-    return Object.values(variableValues.value).filter(v => v !== '' && v !== null).length;
+    return extractedVariables.value.filter(v => variableMapping.value[v]).length;
 });
 </script>
 
@@ -753,7 +754,7 @@ const mappedCount = computed(() => {
                         </div>
 
                         <!-- Right: Resources Sidebar -->
-                        <div class="w-96 bg-gray-50 border-l border-gray-200 flex flex-col">
+                        <div class="overflow-y-auto bg-gray-50 border-l border-gray-200 flex flex-col">
                             <!-- Resource Tabs -->
                             <div class="border-b border-gray-200">
                                 <nav class="flex">
@@ -837,7 +838,7 @@ const mappedCount = computed(() => {
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                             </svg>
                         </div>
-                        <h3 class="text-lg font-medium text-gray-900 mb-2">Documento Compilato con Successo!</h3>
+                        <h3 class="text-lg font-medium text-gray-900 mb-2">Documento compilato con Successo!</h3>
                         <p class="text-sm text-gray-500 mb-6">Il file è stato scaricato automaticamente.</p>
                         <PrimaryButton @click="reset">Crea Nuovo Documento</PrimaryButton>
                     </div>

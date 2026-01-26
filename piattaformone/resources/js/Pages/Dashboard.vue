@@ -622,7 +622,7 @@ onUnmounted(() => {
                                             </span>
                                         </div>
                                     </div>
-                                    <span class="text-xs text-gray-500 mt-2 transform -rotate-45 origin-top-left whitespace-nowrap">
+                                    <span class="text-xs text-gray-500 mt-2 transform -rotate-45 .origin-top-left whitespace-nowrap">
                                         {{ item.month.split('-')[1] }}/{{ item.month.split('-')[0].slice(-2) }}
                                     </span>
                                 </div>

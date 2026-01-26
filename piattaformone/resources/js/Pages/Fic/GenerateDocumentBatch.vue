@@ -533,7 +533,7 @@ const reset = () => {
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                             </svg>
                         </div>
-                        <h3 class="text-lg font-medium text-gray-900 mb-2">Documenti Compilati con Successo!</h3>
+                        <h3 class="text-lg font-medium text-gray-900 mb-2">Documenti compilati con Successo!</h3>
                         <p class="text-sm text-gray-500 mb-6">Il file ZIP è stato scaricato automaticamente.</p>
                         <PrimaryButton @click="reset">Crea Nuovi Documenti</PrimaryButton>
                     </div>

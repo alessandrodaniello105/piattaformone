@@ -24,9 +24,9 @@ class FicCacheService
     /**
      * Get cached data for a specific resource type and page.
      */
-    public function get(string $type, int $page, int $perPage): ?array
+    public function get(string $type, int $page, int $perPage, ?int $teamId = null): ?array
     {
-        $key = $this->getCacheKey($type, $page, $perPage);
+        $key = $this->getCacheKey($type, $page, $perPage, $teamId);
 
         return Cache::get($key);
     }
@@ -34,9 +34,9 @@ class FicCacheService
     /**
      * Store data in cache for a specific resource type and page.
      */
-    public function put(string $type, int $page, int $perPage, array $data, array $meta): void
+    public function put(string $type, int $page, int $perPage, array $data, array $meta, ?int $teamId = null): void
     {
-        $key = $this->getCacheKey($type, $page, $perPage);
+        $key = $this->getCacheKey($type, $page, $perPage, $teamId);
 
         Cache::put($key, [
             'data' => $data,
@@ -45,15 +45,18 @@ class FicCacheService
     }
 
     /**
-     * Invalidate all cached pages for a specific resource type.
+     * Invalidate all cached pages for a specific resource type and team.
      */
-    public function invalidate(string $type): void
+    public function invalidate(string $type, ?int $teamId = null): void
     {
         if (! isset(self::KEYS[$type])) {
             return;
         }
 
         $prefix = self::KEYS[$type];
+        if ($teamId !== null) {
+            $prefix .= ':team:'.$teamId;
+        }
 
         // Clear all cache keys with this prefix
         // Redis supports pattern matching with KEYS command
@@ -75,25 +78,33 @@ class FicCacheService
     }
 
     /**
-     * Invalidate all FIC cache.
+     * Invalidate all FIC cache for a specific team.
      */
-    public function invalidateAll(): void
+    public function invalidateAll(?int $teamId = null): void
     {
         foreach (array_keys(self::KEYS) as $type) {
-            $this->invalidate($type);
+            $this->invalidate($type, $teamId);
         }
     }
 
     /**
-     * Generate cache key for a specific resource type, page, and per_page.
+     * Generate cache key for a specific resource type, page, per_page, and team.
      */
-    private function getCacheKey(string $type, int $page, int $perPage): string
+    private function getCacheKey(string $type, int $page, int $perPage, ?int $teamId = null): string
     {
         if (! isset(self::KEYS[$type])) {
             throw new \InvalidArgumentException("Invalid resource type: {$type}");
         }
 
-        return self::KEYS[$type].':page:'.$page.':perpage:'.$perPage;
+        $key = self::KEYS[$type];
+
+        if ($teamId !== null) {
+            $key .= ':team:'.$teamId;
+        }
+
+        $key .= ':page:'.$page.':perpage:'.$perPage;
+
+        return $key;
     }
 
     /**
