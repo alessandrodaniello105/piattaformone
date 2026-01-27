@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import SecondaryButton from '@/Components/SecondaryButton.vue';
@@ -98,11 +98,11 @@ const isLoading = computed(() => {
 });
 
 // Fetch functions
-const fetchClients = async (page = 1) => {
+const fetchClients = async (page = 1, bypassCache = false) => {
     try {
         loadingClients.value = true;
         const response = await window.axios.get('/api/fic/clients', {
-            params: { page, per_page: 25 },
+            params: { page, per_page: 25, bypass_cache: bypassCache },
         });
         clients.value = response.data.data || [];
         clientsMeta.value = response.data.meta || { total: 0, current_page: 1, last_page: 1 };
@@ -114,11 +114,11 @@ const fetchClients = async (page = 1) => {
     }
 };
 
-const fetchSuppliers = async (page = 1) => {
+const fetchSuppliers = async (page = 1, bypassCache = false) => {
     try {
         loadingSuppliers.value = true;
         const response = await window.axios.get('/api/fic/suppliers', {
-            params: { page, per_page: 25 },
+            params: { page, per_page: 25, bypass_cache: bypassCache },
         });
         suppliers.value = response.data.data || [];
         suppliersMeta.value = response.data.meta || { total: 0, current_page: 1, last_page: 1 };
@@ -130,11 +130,11 @@ const fetchSuppliers = async (page = 1) => {
     }
 };
 
-const fetchQuotes = async (page = 1) => {
+const fetchQuotes = async (page = 1, bypassCache = false) => {
     try {
         loadingQuotes.value = true;
         const response = await window.axios.get('/api/fic/quotes', {
-            params: { page, per_page: 25 },
+            params: { page, per_page: 25, bypass_cache: bypassCache },
         });
         quotes.value = response.data.data || [];
         quotesMeta.value = response.data.meta || { total: 0, current_page: 1, last_page: 1 };
@@ -146,11 +146,11 @@ const fetchQuotes = async (page = 1) => {
     }
 };
 
-const fetchInvoices = async (page = 1) => {
+const fetchInvoices = async (page = 1, bypassCache = false) => {
     try {
         loadingInvoices.value = true;
         const response = await window.axios.get('/api/fic/invoices', {
-            params: { page, per_page: 25 },
+            params: { page, per_page: 25, bypass_cache: bypassCache },
         });
         invoices.value = response.data.data || [];
         invoicesMeta.value = response.data.meta || { total: 0, current_page: 1, last_page: 1 };
@@ -211,7 +211,18 @@ const performSync = async () => {
 
         if (response.data.success) {
             const stats = response.data.stats;
-            syncMessage.value = `Sync completato! Clienti: ${stats.clients.created} creati, ${stats.clients.updated} aggiornati. Fornitori: ${stats.suppliers.created} creati, ${stats.suppliers.updated} aggiornati. Fatture: ${stats.invoices.created} create, ${stats.invoices.updated} aggiornate. Preventivi: ${stats.quotes.created} creati, ${stats.quotes.updated} aggiornati.`;
+            const parts = [
+                `Clienti: ${stats.clients.created} creati, ${stats.clients.updated} aggiornati`,
+                `Fornitori: ${stats.suppliers.created} creati, ${stats.suppliers.updated} aggiornati`,
+                `Fatture: ${stats.invoices.created} create, ${stats.invoices.updated} aggiornate`,
+                `Preventivi: ${stats.quotes.created} creati, ${stats.quotes.updated} aggiornati`,
+            ];
+            
+            if (stats.subscriptions) {
+                parts.push(`Sottoscrizioni: ${stats.subscriptions.created} create, ${stats.subscriptions.updated} aggiornate`);
+            }
+            
+            syncMessage.value = `Sync completato! ${parts.join('. ')}.`;
 
             // Refresh all data
             await Promise.all([fetchClients(), fetchSuppliers(), fetchQuotes(), fetchInvoices()]);
@@ -278,22 +289,36 @@ const setupEchoListener = () => {
         if (syncChannel && syncChannel.listen) {
             syncChannel.listen('.resource.synced', (data) => {
                 console.log('Resource synced event received:', data);
+                console.log('Current account ID:', currentAccountId.value);
+                console.log('Event account ID:', data.account_id);
+                
+                // Only process if event is for current account
+                if (data.account_id !== currentAccountId.value) {
+                    console.warn('Ignoring resource.synced event for different account', {
+                        eventAccountId: data.account_id,
+                        currentAccountId: currentAccountId.value,
+                    });
+                    return;
+                }
                 
                 // Refresh the data for the synced resource type
+                // Use bypass_cache=true to ensure fresh data after sync
                 const resourceType = data.resource_type;
+                
+                console.log(`Refreshing ${resourceType} data with bypass_cache=true`);
                 
                 switch (resourceType) {
                     case 'client':
-                        fetchClients(clientsMeta.value.current_page);
+                        fetchClients(clientsMeta.value.current_page, true);
                         break;
                     case 'supplier':
-                        fetchSuppliers(suppliersMeta.value.current_page);
+                        fetchSuppliers(suppliersMeta.value.current_page, true);
                         break;
                     case 'quote':
-                        fetchQuotes(quotesMeta.value.current_page);
+                        fetchQuotes(quotesMeta.value.current_page, true);
                         break;
                     case 'invoice':
-                        fetchInvoices(invoicesMeta.value.current_page);
+                        fetchInvoices(invoicesMeta.value.current_page, true);
                         break;
                 }
             });
@@ -308,11 +333,18 @@ const setupEchoListener = () => {
     }
 };
 
-// Cleanup Echo channel on unmount
+// Cleanup Echo channel on unmount or account change
 const cleanupEchoListener = () => {
     if (syncChannel && window.Echo) {
         try {
-            window.Echo.leave(`sync.account.${currentAccountId.value}`);
+            // Stop listening first
+            if (syncChannel.stopListening) {
+                syncChannel.stopListening('.resource.synced');
+            }
+            // Then leave the channel
+            if (currentAccountId.value) {
+                window.Echo.leave(`sync.account.${currentAccountId.value}`);
+            }
             syncChannel = null;
             console.log('Echo listener cleaned up');
         } catch (error) {
@@ -320,6 +352,16 @@ const cleanupEchoListener = () => {
         }
     }
 };
+
+// Watch for account ID changes and restart listener
+watch(currentAccountId, (newAccountId, oldAccountId) => {
+    if (newAccountId && newAccountId !== oldAccountId) {
+        // Cleanup old listener
+        cleanupEchoListener();
+        // Setup new listener for new account
+        setupEchoListener();
+    }
+});
 
 // Lifecycle
 onMounted(() => {

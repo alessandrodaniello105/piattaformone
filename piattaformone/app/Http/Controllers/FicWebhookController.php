@@ -214,6 +214,31 @@ class FicWebhookController extends Controller
             }
         }
 
+        // If still not found, try finding subscription by event_group across all accounts
+        // This handles cases where URL has wrong account_id but event_group is correct
+        if (! $subscription && $group) {
+            Log::info('FIC Webhook: Subscription not found with route account_id, trying all accounts with event_group', [
+                'account_id' => $accountId,
+                'event_group' => $group,
+            ]);
+
+            $subscription = FicSubscription::where('event_group', $group)
+                ->where('is_active', true)
+                ->first();
+
+            if ($subscription) {
+                // Update accountId to match the actual subscription
+                $accountId = $subscription->fic_account_id;
+                Log::warning('FIC Webhook: Found subscription with different account_id', [
+                    'url_account_id' => $request->route('account_id'),
+                    'actual_account_id' => $accountId,
+                    'event_group' => $group,
+                    'subscription_id' => $subscription->id,
+                    'note' => 'Webhook URL has wrong account_id. Consider updating the subscription URL.',
+                ]);
+            }
+        }
+
         if (! $subscription) {
             // Log all request details for debugging
             Log::warning('FIC Webhook: Subscription not found in database', [
@@ -693,26 +718,69 @@ class FicWebhookController extends Controller
                 'event' => $eventType,
                 'account_id' => $accountId,
             ]);
+
             return;
         }
 
         foreach ($ids as $ficId) {
             try {
-                FicEvent::create([
-                    'fic_account_id' => $accountId,
-                    'event_type' => $eventType,
-                    'resource_type' => $mapping['resource_type'],
-                    'fic_resource_id' => (int) $ficId,
-                    'occurred_at' => $occurredAt ? new \Carbon\Carbon($occurredAt) : now(),
-                    'payload' => $payload,
-                    'status' => 'pending',
-                ]);
+                $ceId = $payload['ce_id'] ?? null;
+                $occurredAtCarbon = $occurredAt ? new \Carbon\Carbon($occurredAt) : now();
 
-                Log::debug('FIC Webhook: Pending event created', [
-                    'account_id' => $accountId,
-                    'resource_type' => $mapping['resource_type'],
-                    'fic_id' => $ficId,
-                ]);
+                // Check if event already exists to prevent duplicates
+                $existingEvent = null;
+
+                if ($ceId) {
+                    // If we have ce_id, check for existing event with same ce_id
+                    $existingEvent = FicEvent::where('fic_account_id', $accountId)
+                        ->where('payload->ce_id', $ceId)
+                        ->first();
+                } else {
+                    // Without ce_id, check for pending event with same event_type + resource_id created recently (within last 10 seconds)
+                    // This prevents duplicates from webhook retries while allowing legitimate separate events
+                    $existingEvent = FicEvent::where('fic_account_id', $accountId)
+                        ->where('event_type', $eventType)
+                        ->where('resource_type', $mapping['resource_type'])
+                        ->where('fic_resource_id', (int) $ficId)
+                        ->where('status', 'pending')
+                        ->where('occurred_at', '>=', $occurredAtCarbon->copy()->subSeconds(10))
+                        ->where('occurred_at', '<=', $occurredAtCarbon->copy()->addSeconds(10))
+                        ->first();
+                }
+
+                if ($existingEvent) {
+                    // Update existing event instead of creating duplicate
+                    $existingEvent->update([
+                        'occurred_at' => $occurredAtCarbon,
+                        'payload' => $payload,
+                        'status' => 'pending', // Reset to pending if it was already processed (webhook retry)
+                    ]);
+
+                    Log::debug('FIC Webhook: Existing pending event updated', [
+                        'account_id' => $accountId,
+                        'resource_type' => $mapping['resource_type'],
+                        'fic_id' => $ficId,
+                        'event_id' => $existingEvent->id,
+                    ]);
+                } else {
+                    // Create new event
+                    $event = FicEvent::create([
+                        'fic_account_id' => $accountId,
+                        'event_type' => $eventType,
+                        'resource_type' => $mapping['resource_type'],
+                        'fic_resource_id' => (int) $ficId,
+                        'occurred_at' => $occurredAtCarbon,
+                        'payload' => $payload,
+                        'status' => 'pending',
+                    ]);
+
+                    Log::debug('FIC Webhook: Pending event created', [
+                        'account_id' => $accountId,
+                        'resource_type' => $mapping['resource_type'],
+                        'fic_id' => $ficId,
+                        'event_id' => $event->id,
+                    ]);
+                }
             } catch (\Exception $e) {
                 Log::error('FIC Webhook: Error creating pending event', [
                     'account_id' => $accountId,

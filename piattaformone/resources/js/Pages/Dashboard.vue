@@ -263,8 +263,12 @@ const setupEchoListeners = () => {
     try {
         // Listen to account-specific channel for multi-tenant support
         // Each account receives only its own webhook events
-        // TODO: Make account_id dynamic based on current user/account context
-        const accountId = 1; // For now, hardcoded to account 1
+        const accountId = ficConnection.value?.account_id;
+        
+        if (!accountId) {
+            console.warn('No FIC account ID available for Echo listener');
+            return;
+        }
         
         // Listen for webhook events
         accountChannel = window.Echo.channel(`webhooks.account.${accountId}`);
@@ -438,12 +442,13 @@ onUnmounted(() => {
             }
             
             // Leave channels
-            if (accountChannel) {
-                window.Echo.leave(`webhooks.account.1`);
+            const accountId = ficConnection.value?.account_id;
+            if (accountChannel && accountId) {
+                window.Echo.leave(`webhooks.account.${accountId}`);
             }
             
-            if (syncChannel) {
-                window.Echo.leave(`sync.account.1`);
+            if (syncChannel && accountId) {
+                window.Echo.leave(`sync.account.${accountId}`);
             }
             
             // Clear references
