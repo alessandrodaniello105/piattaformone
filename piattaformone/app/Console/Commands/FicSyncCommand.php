@@ -8,6 +8,7 @@ use App\Models\FicInvoice;
 use App\Models\FicQuote;
 use App\Models\FicSupplier;
 use App\Services\FicApiService;
+use App\Services\FicCacheService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -91,6 +92,24 @@ class FicSyncCommand extends Command
             $result = $this->syncResource($apiService, $account, $resourceType);
             $summary[$resourceType] = $result;
             $this->newLine();
+        }
+
+        // Invalidate cache after sync to ensure UI shows updated data
+        try {
+            $cacheService = app(FicCacheService::class);
+            $teamId = $account->tenant_id;
+
+            foreach ($resourcesToSync as $resourceType) {
+                $cacheService->invalidate($resourceType, $teamId);
+            }
+
+            $this->info('Cache invalidated successfully.');
+        } catch (\Exception $e) {
+            $this->warn('Failed to invalidate cache: '.$e->getMessage());
+            Log::warning('FIC Sync Command: Failed to invalidate cache', [
+                'account_id' => $account->id,
+                'error' => $e->getMessage(),
+            ]);
         }
 
         // Display summary
@@ -378,9 +397,9 @@ class FicSyncCommand extends Command
             [
                 'number' => $invoiceData['number'] ?? null,
                 'status' => $invoiceData['status'] ?? null,
-                'total_gross' => $invoiceData['amount_net'] 
-                    ?? $invoiceData['total'] 
-                    ?? $invoiceData['total_gross'] 
+                'total_gross' => $invoiceData['amount_net']
+                    ?? $invoiceData['total']
+                    ?? $invoiceData['total_gross']
                     ?? null,
                 'fic_date' => $this->extractFicDate($invoiceData),
                 'fic_created_at' => isset($invoiceData['created_at']) ? Carbon::parse($invoiceData['created_at']) : null,
@@ -408,9 +427,9 @@ class FicSyncCommand extends Command
             [
                 'number' => $quoteData['number'] ?? null,
                 'status' => $quoteData['status'] ?? null,
-                'total_gross' => $quoteData['amount_net'] 
-                    ?? $quoteData['total'] 
-                    ?? $quoteData['total_gross'] 
+                'total_gross' => $quoteData['amount_net']
+                    ?? $quoteData['total']
+                    ?? $quoteData['total_gross']
                     ?? null,
                 'fic_date' => $this->extractFicDate($quoteData),
                 'fic_created_at' => isset($quoteData['created_at']) ? Carbon::parse($quoteData['created_at']) : null,
@@ -465,12 +484,11 @@ class FicSyncCommand extends Command
      * Extract fic_date from data array, checking both direct 'date' field and 'raw' array.
      *
      * @param  array  $data  The data array (may contain 'date' directly or 'fic_date' in 'raw')
-     * @return \Carbon\Carbon|null
      */
     private function extractFicDate(array $data): ?Carbon
     {
         // Try direct 'date' field first (from API response)
-        if (isset($data['date']) && !empty($data['date'])) {
+        if (isset($data['date']) && ! empty($data['date'])) {
             try {
                 return Carbon::parse($data['date']);
             } catch (\Exception $e) {
@@ -479,7 +497,7 @@ class FicSyncCommand extends Command
         }
 
         // Try from raw array - check for 'fic_date' (as stored in raw JSON)
-        if (isset($data['raw']['fic_date']) && !empty($data['raw']['fic_date'])) {
+        if (isset($data['raw']['fic_date']) && ! empty($data['raw']['fic_date'])) {
             try {
                 return Carbon::parse($data['raw']['fic_date']);
             } catch (\Exception $e) {
@@ -488,7 +506,7 @@ class FicSyncCommand extends Command
         }
 
         // Also try 'date' in raw (in case it's stored as 'date' in raw)
-        if (isset($data['raw']['date']) && !empty($data['raw']['date'])) {
+        if (isset($data['raw']['date']) && ! empty($data['raw']['date'])) {
             try {
                 return Carbon::parse($data['raw']['date']);
             } catch (\Exception $e) {
@@ -500,7 +518,7 @@ class FicSyncCommand extends Command
         // Check if it's already the raw structure
         if (isset($data['raw']) && is_array($data['raw'])) {
             // Try fic_date first
-            if (isset($data['raw']['fic_date']) && !empty($data['raw']['fic_date'])) {
+            if (isset($data['raw']['fic_date']) && ! empty($data['raw']['fic_date'])) {
                 try {
                     return Carbon::parse($data['raw']['fic_date']);
                 } catch (\Exception $e) {
@@ -508,7 +526,7 @@ class FicSyncCommand extends Command
                 }
             }
             // Then try date
-            if (isset($data['raw']['date']) && !empty($data['raw']['date'])) {
+            if (isset($data['raw']['date']) && ! empty($data['raw']['date'])) {
                 try {
                     return Carbon::parse($data['raw']['date']);
                 } catch (\Exception $e) {
@@ -524,12 +542,11 @@ class FicSyncCommand extends Command
      * Extract fic_created_at from data array, checking both direct 'created_at' field and 'raw' array.
      *
      * @param  array  $data  The data array (may contain 'created_at' directly or 'fic_created_at' in 'raw')
-     * @return \Carbon\Carbon|null
      */
     private function extractFicCreatedAt(array $data): ?Carbon
     {
         // Try direct 'created_at' field first (from API response)
-        if (isset($data['created_at']) && !empty($data['created_at'])) {
+        if (isset($data['created_at']) && ! empty($data['created_at'])) {
             try {
                 return Carbon::parse($data['created_at']);
             } catch (\Exception $e) {
@@ -538,7 +555,7 @@ class FicSyncCommand extends Command
         }
 
         // Try from raw array - check for 'fic_created_at' (as stored in raw JSON)
-        if (isset($data['raw']['fic_created_at']) && !empty($data['raw']['fic_created_at'])) {
+        if (isset($data['raw']['fic_created_at']) && ! empty($data['raw']['fic_created_at'])) {
             try {
                 return Carbon::parse($data['raw']['fic_created_at']);
             } catch (\Exception $e) {
@@ -547,7 +564,7 @@ class FicSyncCommand extends Command
         }
 
         // Also try 'created_at' in raw (in case it's stored as 'created_at' in raw)
-        if (isset($data['raw']['created_at']) && !empty($data['raw']['created_at'])) {
+        if (isset($data['raw']['created_at']) && ! empty($data['raw']['created_at'])) {
             try {
                 return Carbon::parse($data['raw']['created_at']);
             } catch (\Exception $e) {
@@ -562,12 +579,11 @@ class FicSyncCommand extends Command
      * Extract fic_updated_at from data array, checking both direct 'updated_at' field and 'raw' array.
      *
      * @param  array  $data  The data array (may contain 'updated_at' directly or 'fic_updated_at' in 'raw')
-     * @return \Carbon\Carbon|null
      */
     private function extractFicUpdatedAt(array $data): ?Carbon
     {
         // Try direct 'updated_at' field first (from API response)
-        if (isset($data['updated_at']) && !empty($data['updated_at'])) {
+        if (isset($data['updated_at']) && ! empty($data['updated_at'])) {
             try {
                 return Carbon::parse($data['updated_at']);
             } catch (\Exception $e) {
@@ -576,7 +592,7 @@ class FicSyncCommand extends Command
         }
 
         // Try from raw array - check for 'fic_updated_at' (as stored in raw JSON)
-        if (isset($data['raw']['fic_updated_at']) && !empty($data['raw']['fic_updated_at'])) {
+        if (isset($data['raw']['fic_updated_at']) && ! empty($data['raw']['fic_updated_at'])) {
             try {
                 return Carbon::parse($data['raw']['fic_updated_at']);
             } catch (\Exception $e) {
@@ -585,7 +601,7 @@ class FicSyncCommand extends Command
         }
 
         // Also try 'updated_at' in raw (in case it's stored as 'updated_at' in raw)
-        if (isset($data['raw']['updated_at']) && !empty($data['raw']['updated_at'])) {
+        if (isset($data['raw']['updated_at']) && ! empty($data['raw']['updated_at'])) {
             try {
                 return Carbon::parse($data['raw']['updated_at']);
             } catch (\Exception $e) {

@@ -59,13 +59,12 @@ class FicCacheService
         }
 
         // Clear all cache keys with this prefix
-        // Redis supports pattern matching with KEYS command
-        // For production, consider using SCAN instead for better performance
+        // Use SCAN instead of KEYS for non-blocking operation
         $pattern = $prefix.':*';
 
         if (Cache::getStore() instanceof \Illuminate\Cache\RedisStore) {
             $redis = Cache::getStore()->connection();
-            $keys = $redis->keys($pattern);
+            $keys = $this->scanKeys($redis, $pattern);
 
             if (! empty($keys)) {
                 $redis->del($keys);
@@ -113,5 +112,31 @@ class FicCacheService
     public static function getSupportedTypes(): array
     {
         return array_keys(self::KEYS);
+    }
+
+    /**
+     * Scan Redis keys using SCAN instead of KEYS (non-blocking).
+     *
+     * @param  mixed  $redis  Redis connection instance
+     * @param  string  $pattern  Pattern to match (e.g., 'prefix:*')
+     * @return array Array of matching keys
+     */
+    private function scanKeys($redis, string $pattern): array
+    {
+        $keys = [];
+        $cursor = 0;
+
+        do {
+            // Use SCAN instead of KEYS for non-blocking operation
+            $result = $redis->scan($cursor, [
+                'MATCH' => $pattern,
+                'COUNT' => 100, // Process 100 keys at a time
+            ]);
+
+            $cursor = $result[0];
+            $keys = array_merge($keys, $result[1]);
+        } while ($cursor !== 0);
+
+        return array_unique($keys);
     }
 }

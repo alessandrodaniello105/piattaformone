@@ -37,8 +37,6 @@ class FicSyncController extends Controller
 
     /**
      * Show the synced data page with initial clients data.
-     *
-     * @return InertiaResponse
      */
     public function index(Request $request): InertiaResponse
     {
@@ -101,8 +99,6 @@ class FicSyncController extends Controller
      *
      * Fetches clients, quotes, and invoices from FIC and upserts them into local database.
      * Returns statistics about the sync operation.
-     *
-     * @return JsonResponse
      */
     public function initialSync(Request $request): JsonResponse
     {
@@ -114,7 +110,7 @@ class FicSyncController extends Controller
                 ->where('status', 'active')
                 ->first();
 
-            if (!$account) {
+            if (! $account) {
                 return response()->json([
                     'error' => 'No FIC account found for this team. Please connect an account first.',
                 ], 404);
@@ -129,34 +125,10 @@ class FicSyncController extends Controller
                 'invoices' => ['created' => 0, 'updated' => 0],
             ];
 
-            // Sync clients
+            // Sync clients with pagination
             try {
-                $clientsData = $apiService->fetchClientsList(['per_page' => 100]);
-                // fetchClientsList returns the data array directly, not wrapped in ['data']
-                $clients = is_array($clientsData) ? $clientsData : [];
-
-                foreach ($clients as $clientData) {
-                    $client = FicClient::updateOrCreate(
-                        [
-                            'fic_account_id' => $account->id,
-                            'fic_client_id' => $clientData['id'],
-                        ],
-                        [
-                            'name' => $clientData['name'] ?? null,
-                            'code' => $clientData['code'] ?? null,
-                            'vat_number' => $clientData['vat_number'] ?? null,
-                            'fic_created_at' => $this->extractFicCreatedAt($clientData),
-                            'fic_updated_at' => $this->extractFicUpdatedAt($clientData),
-                            'raw' => $clientData,
-                        ]
-                    );
-
-                    if ($client->wasRecentlyCreated) {
-                        $stats['clients']['created']++;
-                    } else {
-                        $stats['clients']['updated']++;
-                    }
-                }
+                $clientStats = $this->syncResourceWithPagination($apiService, $account, 'clients');
+                $stats['clients'] = $clientStats;
             } catch (\Exception $e) {
                 Log::error('FIC Sync: Error syncing clients', [
                     'account_id' => $account->id,
@@ -164,34 +136,10 @@ class FicSyncController extends Controller
                 ]);
             }
 
-            // Sync suppliers
+            // Sync suppliers with pagination
             try {
-                $suppliersData = $apiService->fetchSuppliersList(['per_page' => 100]);
-                // fetchSuppliersList returns the data array directly, not wrapped in ['data']
-                $suppliers = is_array($suppliersData) ? $suppliersData : [];
-
-                foreach ($suppliers as $supplierData) {
-                    $supplier = FicSupplier::updateOrCreate(
-                        [
-                            'fic_account_id' => $account->id,
-                            'fic_supplier_id' => $supplierData['id'],
-                        ],
-                        [
-                            'name' => $supplierData['name'] ?? null,
-                            'code' => $supplierData['code'] ?? null,
-                            'vat_number' => $supplierData['vat_number'] ?? null,
-                            'fic_created_at' => $this->extractFicCreatedAt($supplierData),
-                            'fic_updated_at' => $this->extractFicUpdatedAt($supplierData),
-                            'raw' => $supplierData,
-                        ]
-                    );
-
-                    if ($supplier->wasRecentlyCreated) {
-                        $stats['suppliers']['created']++;
-                    } else {
-                        $stats['suppliers']['updated']++;
-                    }
-                }
+                $supplierStats = $this->syncResourceWithPagination($apiService, $account, 'suppliers');
+                $stats['suppliers'] = $supplierStats;
             } catch (\Exception $e) {
                 Log::error('FIC Sync: Error syncing suppliers', [
                     'account_id' => $account->id,
@@ -199,39 +147,10 @@ class FicSyncController extends Controller
                 ]);
             }
 
-            // Sync quotes
+            // Sync quotes with pagination
             try {
-                $quotesData = $apiService->fetchQuotesList(['per_page' => 100]);
-                // fetchQuotesList returns pagination structure with 'data' key when using SDK
-                $quotes = $quotesData['data'] ?? (is_array($quotesData) ? $quotesData : []);
-
-                foreach ($quotes as $quoteData) {
-                    $quote = FicQuote::updateOrCreate(
-                        [
-                            'fic_account_id' => $account->id,
-                            'fic_quote_id' => $quoteData['id'],
-                        ],
-                        [
-                            'number' => $quoteData['number'] ?? null,
-                            'status' => $quoteData['status'] ?? null,
-                            'total_gross' => $quoteData['amount_net'] 
-                                ?? $quoteData['total'] 
-                                ?? $quoteData['total_gross'] 
-                                ?? null,
-                            'fic_date' => $this->extractFicDate($quoteData),
-                            'fic_created_at' => isset($quoteData['created_at']) 
-                                ? Carbon::parse($quoteData['created_at']) 
-                                : null,
-                            'raw' => $quoteData,
-                        ]
-                    );
-
-                    if ($quote->wasRecentlyCreated) {
-                        $stats['quotes']['created']++;
-                    } else {
-                        $stats['quotes']['updated']++;
-                    }
-                }
+                $quoteStats = $this->syncResourceWithPagination($apiService, $account, 'quotes');
+                $stats['quotes'] = $quoteStats;
             } catch (\Exception $e) {
                 Log::error('FIC Sync: Error syncing quotes', [
                     'account_id' => $account->id,
@@ -239,39 +158,10 @@ class FicSyncController extends Controller
                 ]);
             }
 
-            // Sync invoices
+            // Sync invoices with pagination
             try {
-                $invoicesData = $apiService->fetchInvoicesList(['per_page' => 100]);
-                // fetchInvoicesList returns the data array directly, not wrapped in ['data']
-                $invoices = is_array($invoicesData) ? $invoicesData : [];
-
-                foreach ($invoices as $invoiceData) {
-                    $invoice = FicInvoice::updateOrCreate(
-                        [
-                            'fic_account_id' => $account->id,
-                            'fic_invoice_id' => $invoiceData['id'],
-                        ],
-                        [
-                            'number' => $invoiceData['number'] ?? null,
-                            'status' => $invoiceData['status'] ?? null,
-                            'total_gross' => $invoiceData['amount_net'] 
-                                ?? $invoiceData['total'] 
-                                ?? $invoiceData['total_gross'] 
-                                ?? null,
-                            'fic_date' => $this->extractFicDate($invoiceData),
-                            'fic_created_at' => isset($invoiceData['created_at']) 
-                                ? Carbon::parse($invoiceData['created_at']) 
-                                : null,
-                            'raw' => $invoiceData,
-                        ]
-                    );
-
-                    if ($invoice->wasRecentlyCreated) {
-                        $stats['invoices']['created']++;
-                    } else {
-                        $stats['invoices']['updated']++;
-                    }
-                }
+                $invoiceStats = $this->syncResourceWithPagination($apiService, $account, 'invoices');
+                $stats['invoices'] = $invoiceStats;
             } catch (\Exception $e) {
                 Log::error('FIC Sync: Error syncing invoices', [
                     'account_id' => $account->id,
@@ -297,7 +187,7 @@ class FicSyncController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'Sync failed: ' . $e->getMessage(),
+                'error' => 'Sync failed: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -307,9 +197,6 @@ class FicSyncController extends Controller
      *
      * Returns a normalized feed of recent events from clients, quotes, and invoices.
      * If fic_events table exists, uses that; otherwise merges data from resource tables.
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function events(Request $request): JsonResponse
     {
@@ -322,7 +209,7 @@ class FicSyncController extends Controller
                 ->where('status', 'active')
                 ->first();
 
-            if (!$account) {
+            if (! $account) {
                 return response()->json([
                     'events' => [],
                 ]);
@@ -410,6 +297,7 @@ class FicSyncController extends Controller
                 usort($events, function ($a, $b) {
                     $timeA = $a['occurred_at'] ? Carbon::parse($a['occurred_at']) : Carbon::createFromTimestamp(0);
                     $timeB = $b['occurred_at'] ? Carbon::parse($b['occurred_at']) : Carbon::createFromTimestamp(0);
+
                     return $timeB->gt($timeA) ? 1 : -1;
                 });
 
@@ -425,7 +313,7 @@ class FicSyncController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'Failed to fetch events: ' . $e->getMessage(),
+                'error' => 'Failed to fetch events: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -434,8 +322,6 @@ class FicSyncController extends Controller
      * Get metrics/analytics for dashboard.
      *
      * Returns monthly distribution for the last 12 months and last month KPIs.
-     *
-     * @return JsonResponse
      */
     public function metrics(Request $request): JsonResponse
     {
@@ -445,7 +331,7 @@ class FicSyncController extends Controller
                 ->where('status', 'active')
                 ->first();
 
-            if (!$account) {
+            if (! $account) {
                 return response()->json([
                     'series' => [
                         'clients' => [],
@@ -574,30 +460,30 @@ class FicSyncController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'Failed to fetch metrics: ' . $e->getMessage(),
+                'error' => 'Failed to fetch metrics: '.$e->getMessage(),
             ], 500);
         }
     }
 
     /**
      * Get event description from FicEvent.
-     *
-     * @param FicEvent $event
-     * @return string
      */
     private function getEventDescription(FicEvent $event): string
     {
         $payload = $event->payload ?? [];
-        
+
         switch ($event->resource_type) {
             case 'client':
                 $name = $payload['name'] ?? 'N/A';
+
                 return "Cliente creato: {$name}";
             case 'quote':
                 $number = $payload['number'] ?? 'N/A';
+
                 return "Preventivo creato: {$number}";
             case 'invoice':
                 $number = $payload['number'] ?? 'N/A';
+
                 return "Fattura creata: {$number}";
             default:
                 return "Evento {$event->resource_type}";
@@ -606,11 +492,6 @@ class FicSyncController extends Controller
 
     /**
      * Get the index of a month in the months array.
-     *
-     * @param int $year
-     * @param int $month
-     * @param array $months
-     * @return int|null
      */
     private function getMonthIndex(int $year, int $month, array $months): ?int
     {
@@ -619,14 +500,12 @@ class FicSyncController extends Controller
                 return $index;
             }
         }
+
         return null;
     }
 
     /**
      * Get list of synced clients.
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function clients(Request $request): JsonResponse
     {
@@ -647,7 +526,7 @@ class FicSyncController extends Controller
                 ->where('status', 'active')
                 ->first();
 
-            if (!$account) {
+            if (! $account) {
                 return response()->json([
                     'data' => [],
                     'meta' => ['total' => 0],
@@ -678,16 +557,13 @@ class FicSyncController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'Failed to fetch clients: ' . $e->getMessage(),
+                'error' => 'Failed to fetch clients: '.$e->getMessage(),
             ], 500);
         }
     }
 
     /**
      * Get list of synced quotes.
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function quotes(Request $request): JsonResponse
     {
@@ -708,7 +584,7 @@ class FicSyncController extends Controller
                 ->where('status', 'active')
                 ->first();
 
-            if (!$account) {
+            if (! $account) {
                 return response()->json([
                     'data' => [],
                     'meta' => ['total' => 0],
@@ -739,16 +615,13 @@ class FicSyncController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'Failed to fetch quotes: ' . $e->getMessage(),
+                'error' => 'Failed to fetch quotes: '.$e->getMessage(),
             ], 500);
         }
     }
 
     /**
      * Get list of synced suppliers.
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function suppliers(Request $request): JsonResponse
     {
@@ -769,7 +642,7 @@ class FicSyncController extends Controller
                 ->where('status', 'active')
                 ->first();
 
-            if (!$account) {
+            if (! $account) {
                 return response()->json([
                     'data' => [],
                     'meta' => ['total' => 0],
@@ -800,16 +673,13 @@ class FicSyncController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'Failed to fetch suppliers: ' . $e->getMessage(),
+                'error' => 'Failed to fetch suppliers: '.$e->getMessage(),
             ], 500);
         }
     }
 
     /**
      * Get list of synced invoices.
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function invoices(Request $request): JsonResponse
     {
@@ -830,7 +700,7 @@ class FicSyncController extends Controller
                 ->where('status', 'active')
                 ->first();
 
-            if (!$account) {
+            if (! $account) {
                 return response()->json([
                     'data' => [],
                     'meta' => ['total' => 0],
@@ -861,21 +731,208 @@ class FicSyncController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'Failed to fetch invoices: ' . $e->getMessage(),
+                'error' => 'Failed to fetch invoices: '.$e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Sync a resource type with pagination support.
+     *
+     * @param  FicApiService  $apiService  The API service instance
+     * @param  FicAccount  $account  The FIC account
+     * @param  string  $resourceType  The resource type (clients, suppliers, invoices, quotes)
+     * @return array{created: int, updated: int} Statistics about the sync operation
+     */
+    private function syncResourceWithPagination(FicApiService $apiService, FicAccount $account, string $resourceType): array
+    {
+        $created = 0;
+        $updated = 0;
+        $page = 1;
+        $perPage = 50;
+        $lastPage = 1;
+
+        do {
+            $response = match ($resourceType) {
+                'clients' => $apiService->fetchClientsList(['page' => $page, 'per_page' => $perPage]),
+                'suppliers' => $apiService->fetchSuppliersList(['page' => $page, 'per_page' => $perPage]),
+                'invoices' => $apiService->fetchInvoicesList(['page' => $page, 'per_page' => $perPage]),
+                'quotes' => $apiService->fetchQuotesList(['page' => $page, 'per_page' => $perPage]),
+                default => throw new \InvalidArgumentException("Invalid resource type: {$resourceType}"),
+            };
+
+            // Extract pagination info
+            $lastPage = $response['last_page'] ?? 1;
+            $items = $response['data'] ?? [];
+
+            // Process items
+            foreach ($items as $itemData) {
+                $result = match ($resourceType) {
+                    'clients' => $this->saveClient($account, $itemData),
+                    'suppliers' => $this->saveSupplier($account, $itemData),
+                    'invoices' => $this->saveInvoice($account, $itemData),
+                    'quotes' => $this->saveQuote($account, $itemData),
+                    default => null,
+                };
+
+                if ($result) {
+                    if ($result['wasRecentlyCreated']) {
+                        $created++;
+                    } else {
+                        $updated++;
+                    }
+                }
+            }
+
+            $page++;
+        } while ($page <= $lastPage);
+
+        return ['created' => $created, 'updated' => $updated];
+    }
+
+    /**
+     * Save client to database.
+     *
+     * @param  FicAccount  $account  The FIC account
+     * @param  array  $clientData  Client data from API
+     * @return array{wasRecentlyCreated: bool}|null
+     */
+    private function saveClient(FicAccount $account, array $clientData): ?array
+    {
+        if (! isset($clientData['id'])) {
+            return null;
+        }
+
+        $client = FicClient::updateOrCreate(
+            [
+                'fic_account_id' => $account->id,
+                'fic_client_id' => $clientData['id'],
+            ],
+            [
+                'name' => $clientData['name'] ?? null,
+                'code' => $clientData['code'] ?? null,
+                'vat_number' => $clientData['vat_number'] ?? null,
+                'fic_created_at' => $this->extractFicCreatedAt($clientData),
+                'fic_updated_at' => $this->extractFicUpdatedAt($clientData),
+                'raw' => $clientData,
+            ]
+        );
+
+        return ['wasRecentlyCreated' => $client->wasRecentlyCreated];
+    }
+
+    /**
+     * Save supplier to database.
+     *
+     * @param  FicAccount  $account  The FIC account
+     * @param  array  $supplierData  Supplier data from API
+     * @return array{wasRecentlyCreated: bool}|null
+     */
+    private function saveSupplier(FicAccount $account, array $supplierData): ?array
+    {
+        if (! isset($supplierData['id'])) {
+            return null;
+        }
+
+        $supplier = FicSupplier::updateOrCreate(
+            [
+                'fic_account_id' => $account->id,
+                'fic_supplier_id' => $supplierData['id'],
+            ],
+            [
+                'name' => $supplierData['name'] ?? null,
+                'code' => $supplierData['code'] ?? null,
+                'vat_number' => $supplierData['vat_number'] ?? null,
+                'fic_created_at' => $this->extractFicCreatedAt($supplierData),
+                'fic_updated_at' => $this->extractFicUpdatedAt($supplierData),
+                'raw' => $supplierData,
+            ]
+        );
+
+        return ['wasRecentlyCreated' => $supplier->wasRecentlyCreated];
+    }
+
+    /**
+     * Save invoice to database.
+     *
+     * @param  FicAccount  $account  The FIC account
+     * @param  array  $invoiceData  Invoice data from API
+     * @return array{wasRecentlyCreated: bool}|null
+     */
+    private function saveInvoice(FicAccount $account, array $invoiceData): ?array
+    {
+        if (! isset($invoiceData['id'])) {
+            return null;
+        }
+
+        $invoice = FicInvoice::updateOrCreate(
+            [
+                'fic_account_id' => $account->id,
+                'fic_invoice_id' => $invoiceData['id'],
+            ],
+            [
+                'number' => $invoiceData['number'] ?? null,
+                'status' => $invoiceData['status'] ?? null,
+                'total_gross' => $invoiceData['amount_net']
+                    ?? $invoiceData['total']
+                    ?? $invoiceData['total_gross']
+                    ?? null,
+                'fic_date' => $this->extractFicDate($invoiceData),
+                'fic_created_at' => isset($invoiceData['created_at'])
+                    ? Carbon::parse($invoiceData['created_at'])
+                    : null,
+                'raw' => $invoiceData,
+            ]
+        );
+
+        return ['wasRecentlyCreated' => $invoice->wasRecentlyCreated];
+    }
+
+    /**
+     * Save quote to database.
+     *
+     * @param  FicAccount  $account  The FIC account
+     * @param  array  $quoteData  Quote data from API
+     * @return array{wasRecentlyCreated: bool}|null
+     */
+    private function saveQuote(FicAccount $account, array $quoteData): ?array
+    {
+        if (! isset($quoteData['id'])) {
+            return null;
+        }
+
+        $quote = FicQuote::updateOrCreate(
+            [
+                'fic_account_id' => $account->id,
+                'fic_quote_id' => $quoteData['id'],
+            ],
+            [
+                'number' => $quoteData['number'] ?? null,
+                'status' => $quoteData['status'] ?? null,
+                'total_gross' => $quoteData['amount_net']
+                    ?? $quoteData['total']
+                    ?? $quoteData['total_gross']
+                    ?? null,
+                'fic_date' => $this->extractFicDate($quoteData),
+                'fic_created_at' => isset($quoteData['created_at'])
+                    ? Carbon::parse($quoteData['created_at'])
+                    : null,
+                'raw' => $quoteData,
+            ]
+        );
+
+        return ['wasRecentlyCreated' => $quote->wasRecentlyCreated];
     }
 
     /**
      * Extract fic_date from data array, checking both direct 'date' field and 'raw' array.
      *
      * @param  array  $data  The data array (may contain 'date' directly or 'fic_date' in 'raw')
-     * @return \Illuminate\Support\Carbon|null
      */
     private function extractFicDate(array $data): ?Carbon
     {
         // Try direct 'date' field first (from API response)
-        if (isset($data['date']) && !empty($data['date'])) {
+        if (isset($data['date']) && ! empty($data['date'])) {
             try {
                 return Carbon::parse($data['date']);
             } catch (\Exception $e) {
@@ -884,7 +941,7 @@ class FicSyncController extends Controller
         }
 
         // Try from raw array - check for 'fic_date' (as stored in raw JSON)
-        if (isset($data['raw']['fic_date']) && !empty($data['raw']['fic_date'])) {
+        if (isset($data['raw']['fic_date']) && ! empty($data['raw']['fic_date'])) {
             try {
                 return Carbon::parse($data['raw']['fic_date']);
             } catch (\Exception $e) {
@@ -893,7 +950,7 @@ class FicSyncController extends Controller
         }
 
         // Also try 'date' in raw (in case it's stored as 'date' in raw)
-        if (isset($data['raw']['date']) && !empty($data['raw']['date'])) {
+        if (isset($data['raw']['date']) && ! empty($data['raw']['date'])) {
             try {
                 return Carbon::parse($data['raw']['date']);
             } catch (\Exception $e) {
@@ -905,7 +962,7 @@ class FicSyncController extends Controller
         // Check if it's already the raw structure
         if (isset($data['raw']) && is_array($data['raw'])) {
             // Try fic_date first
-            if (isset($data['raw']['fic_date']) && !empty($data['raw']['fic_date'])) {
+            if (isset($data['raw']['fic_date']) && ! empty($data['raw']['fic_date'])) {
                 try {
                     return Carbon::parse($data['raw']['fic_date']);
                 } catch (\Exception $e) {
@@ -913,7 +970,7 @@ class FicSyncController extends Controller
                 }
             }
             // Then try date
-            if (isset($data['raw']['date']) && !empty($data['raw']['date'])) {
+            if (isset($data['raw']['date']) && ! empty($data['raw']['date'])) {
                 try {
                     return Carbon::parse($data['raw']['date']);
                 } catch (\Exception $e) {
@@ -929,12 +986,11 @@ class FicSyncController extends Controller
      * Extract fic_created_at from data array, checking both direct 'created_at' field and 'raw' array.
      *
      * @param  array  $data  The data array (may contain 'created_at' directly or 'fic_created_at' in 'raw')
-     * @return \Illuminate\Support\Carbon|null
      */
     private function extractFicCreatedAt(array $data): ?Carbon
     {
         // Try direct 'created_at' field first (from API response)
-        if (isset($data['created_at']) && !empty($data['created_at'])) {
+        if (isset($data['created_at']) && ! empty($data['created_at'])) {
             try {
                 return Carbon::parse($data['created_at']);
             } catch (\Exception $e) {
@@ -943,7 +999,7 @@ class FicSyncController extends Controller
         }
 
         // Try from raw array - check for 'fic_created_at' (as stored in raw JSON)
-        if (isset($data['raw']['fic_created_at']) && !empty($data['raw']['fic_created_at'])) {
+        if (isset($data['raw']['fic_created_at']) && ! empty($data['raw']['fic_created_at'])) {
             try {
                 return Carbon::parse($data['raw']['fic_created_at']);
             } catch (\Exception $e) {
@@ -952,7 +1008,7 @@ class FicSyncController extends Controller
         }
 
         // Also try 'created_at' in raw (in case it's stored as 'created_at' in raw)
-        if (isset($data['raw']['created_at']) && !empty($data['raw']['created_at'])) {
+        if (isset($data['raw']['created_at']) && ! empty($data['raw']['created_at'])) {
             try {
                 return Carbon::parse($data['raw']['created_at']);
             } catch (\Exception $e) {
@@ -967,12 +1023,11 @@ class FicSyncController extends Controller
      * Extract fic_updated_at from data array, checking both direct 'updated_at' field and 'raw' array.
      *
      * @param  array  $data  The data array (may contain 'updated_at' directly or 'fic_updated_at' in 'raw')
-     * @return \Illuminate\Support\Carbon|null
      */
     private function extractFicUpdatedAt(array $data): ?Carbon
     {
         // Try direct 'updated_at' field first (from API response)
-        if (isset($data['updated_at']) && !empty($data['updated_at'])) {
+        if (isset($data['updated_at']) && ! empty($data['updated_at'])) {
             try {
                 return Carbon::parse($data['updated_at']);
             } catch (\Exception $e) {
@@ -981,7 +1036,7 @@ class FicSyncController extends Controller
         }
 
         // Try from raw array - check for 'fic_updated_at' (as stored in raw JSON)
-        if (isset($data['raw']['fic_updated_at']) && !empty($data['raw']['fic_updated_at'])) {
+        if (isset($data['raw']['fic_updated_at']) && ! empty($data['raw']['fic_updated_at'])) {
             try {
                 return Carbon::parse($data['raw']['fic_updated_at']);
             } catch (\Exception $e) {
@@ -990,7 +1045,7 @@ class FicSyncController extends Controller
         }
 
         // Also try 'updated_at' in raw (in case it's stored as 'updated_at' in raw)
-        if (isset($data['raw']['updated_at']) && !empty($data['raw']['updated_at'])) {
+        if (isset($data['raw']['updated_at']) && ! empty($data['raw']['updated_at'])) {
             try {
                 return Carbon::parse($data['raw']['updated_at']);
             } catch (\Exception $e) {
