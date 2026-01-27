@@ -1565,19 +1565,163 @@ class FicApiService
     }
 
     /**
+     * Delete a subscription from FIC API.
+     *
+     * @param  string  $ficSubscriptionId  The FIC subscription ID (e.g., 'SUB3098')
+     * @return bool True if deleted successfully, false otherwise
+     *
+     * @throws \Exception If the API call fails
+     */
+    public function deleteSubscription(string $ficSubscriptionId): bool
+    {
+        $this->initializeSdk();
+
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/subscriptions/{$ficSubscriptionId}";
+
+        try {
+            $response = $this->httpClient->request('DELETE', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+            ]);
+
+            $statusCode = $response->getStatusCode();
+
+            if ($statusCode >= 200 && $statusCode < 300) {
+                Log::info('FIC API: Subscription deleted successfully', [
+                    'account_id' => $this->account->id,
+                    'subscription_id' => $ficSubscriptionId,
+                ]);
+
+                return true;
+            }
+
+            throw new \RuntimeException(
+                "FIC API returned HTTP {$statusCode} when deleting subscription {$ficSubscriptionId}",
+                $statusCode
+            );
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error deleting subscription', [
+                'account_id' => $this->account->id,
+                'subscription_id' => $ficSubscriptionId,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to delete subscription {$ficSubscriptionId} from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error deleting subscription', [
+                'account_id' => $this->account->id,
+                'subscription_id' => $ficSubscriptionId,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Verify a subscription by triggering a new verification request.
+     *
+     * @param  string  $ficSubscriptionId  The FIC subscription ID (e.g., 'SUB3232')
+     * @param  string  $verificationMethod  The verification method ('header' or 'query')
+     * @return bool True if verification request was successful
+     *
+     * @throws \Exception If the API call fails
+     */
+    public function verifySubscription(string $ficSubscriptionId, string $verificationMethod = 'header'): bool
+    {
+        $this->initializeSdk();
+
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/subscriptions/{$ficSubscriptionId}/verify";
+
+        $payload = [
+            'data' => [
+                'verification_method' => $verificationMethod,
+            ],
+        ];
+
+        try {
+            $response = $this->httpClient->request('POST', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Content-Type' => 'application/json',
+                ],
+                'json' => $payload,
+            ]);
+
+            $statusCode = $response->getStatusCode();
+
+            if ($statusCode >= 200 && $statusCode < 300) {
+                Log::info('FIC API: Subscription verification requested successfully', [
+                    'account_id' => $this->account->id,
+                    'subscription_id' => $ficSubscriptionId,
+                    'verification_method' => $verificationMethod,
+                ]);
+
+                return true;
+            }
+
+            throw new \RuntimeException(
+                "FIC API returned HTTP {$statusCode} when requesting verification for subscription {$ficSubscriptionId}",
+                $statusCode
+            );
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error requesting subscription verification', [
+                'account_id' => $this->account->id,
+                'subscription_id' => $ficSubscriptionId,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to request verification for subscription {$ficSubscriptionId} from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error requesting subscription verification', [
+                'account_id' => $this->account->id,
+                'subscription_id' => $ficSubscriptionId,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
      * Extract date from FIC API response data.
      * Checks multiple possible field names where the date might be stored.
      *
      * @param  array  $data  The data array from FIC API response
-     * @return \Carbon\Carbon|null
      */
     private function extractDateFromData(array $data): ?\Carbon\Carbon
     {
         // Try common date field names
         $dateFields = ['date', 'fic_date', 'document_date', 'issued_date'];
-        
+
         foreach ($dateFields as $field) {
-            if (isset($data[$field]) && !empty($data[$field])) {
+            if (isset($data[$field]) && ! empty($data[$field])) {
                 try {
                     return new \Carbon\Carbon($data[$field]);
                 } catch (\Exception $e) {
