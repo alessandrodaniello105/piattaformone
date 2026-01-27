@@ -86,6 +86,11 @@ update_or_add_env_var "VITE_HMR_CLIENT_PORT" "443"
 echo ""
 echo -e "${GREEN}✅ File .env aggiornato con successo!${NC}"
 echo ""
+
+# Nota: Il file public/hot viene gestito automaticamente da Vite
+# con la configurazione corretta in vite.config.js (porta 5173)
+
+echo ""
 echo "============================================"
 echo "PROSSIMI PASSI:"
 echo "============================================"
