@@ -1,59 +1,69 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Piattaformone
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Laravel 12 app: **Fatture in Cloud** integration, multi-tenant teams (Jetstream), Inertia + Vue 3, Reverb. Syncs clients, quotes, invoices; generates DOCX via PHPWord; FIC webhooks + OAuth per team.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Status
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+**Working:** OAuth (per-team credentials, company selector on reconnect), FIC sync, webhooks, subscriptions, DOCX generation, Reverb. Team FIC settings UI. `oauth:logs`, `fic:*` Artisan commands. Sail + Docker.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+**Rough edges:** Some feature tests expect different setup (FicSyncController 500s without auth/team context; FicWebhookController 401s — API likely behind auth). `ProcessFicWebhookTest` has Log mock expectations that need love. Vite HMR with ngrok: see `FIX_VITE_HMR.md`.
 
-## Learning Laravel
+---
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+## TODOs
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+- [ ] **FIC roadmap** (`docs/FIC-MULTI-TENANT-ROADMAP.md`): Steps 4–7 still open — multi-tenant tests, migration seeder for existing creds, security (policy, validation), user docs.
+- [ ] Fix/align FicSyncController & FicWebhookController feature tests (auth, env, whatever makes them green).
+- [ ] Fix `ProcessFicWebhookTest` Log mocking.
+- [ ] Nothing else critical; the rest is “nice to have.”
 
-## Laravel Sponsors
+---
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+## Quick start
 
-### Premium Partners
+```bash
+composer install && cp .env.example .env && php artisan key:generate
+vendor/bin/sail up -d
+vendor/bin/sail artisan migrate
+vendor/bin/sail npm install && vendor/bin/sail npm run build
+```
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+OAuth redirect runs at `/api/fic/oauth/redirect`. Configure FIC client (team settings or `.env` fallback). Use `vendor/bin/sail bin pint --dirty` before commits. You know the drill.
 
-## Contributing
+---
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+# Piattaformone
 
-## Code of Conduct
+App Laravel 12: integrazione **Fatture in Cloud**, team multi-tenant (Jetstream), Inertia + Vue 3, Reverb. Sincronizza clienti, preventivi, fatture; genera DOCX con PHPWord; webhook e OAuth FIC per team.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+---
 
-## Security Vulnerabilities
+## Stato
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+**Funziona:** OAuth (credenziali per team, selettore azienda in reconnect), sync FIC, webhook, subscription, generazione DOCX, Reverb. UI impostazioni FIC per team. Comandi `oauth:logs`, `fic:*`. Sail + Docker.
 
-## License
+**Da sistemare:** Qualche test feature presuppone un altro setup (FicSyncController 500 senza auth/team; FicWebhookController 401 — API dietro auth). `ProcessFicWebhookTest` ha mock su Log da aggiustare. HMR Vite con ngrok: vedi `FIX_VITE_HMR.md`.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+---
+
+## TODO
+
+- [ ] **Roadmap FIC** (`docs/FIC-MULTI-TENANT-ROADMAP.md`): Step 4–7 ancora aperti — test multi-tenant, seeder migrazione credenziali, security (policy, validazione), documentazione utente.
+- [ ] Allineare/far passare i test feature di FicSyncController e FicWebhookController (auth, env, ecc.).
+- [ ] Sistemare il mocking di Log in `ProcessFicWebhookTest`.
+- [ ] Nient’altro di bloccante; il resto è “would be nice”.
+
+---
+
+## Avvio rapido
+
+```bash
+composer install && cp .env.example .env && php artisan key:generate
+vendor/bin/sail up -d
+vendor/bin/sail artisan migrate
+vendor/bin/sail npm install && vendor/bin/sail npm run build
+```
+
+Redirect OAuth: `/api/fic/oauth/redirect`. Configura app FIC (impostazioni team o fallback `.env`). Prima dei commit: `vendor/bin/sail bin pint --dirty`. Il resto è routine.
