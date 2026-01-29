@@ -17,12 +17,15 @@ Integrazione Fatture in Cloud - Step 1
 [x] Creare config file: config/fattureincloud.php
 [x] Creare Service Provider per FIC (opzionale, per dependency injection)
 [x] Configurare OAuth2 Authorization Code Flow (redirect, callback, token storage in Redis)
-[x] Creare migration per tabella webhook_logs (salvare eventi ricevuti)
-[x] Creare migration per tabella fic_accounts (per multi-tenant futuro)
-[x] Creare Controller: WebhookController per gestire webhook
-[x] Creare Route: POST /api/webhooks/fattureincloud (protetta)
+[x] Creare migration per tabella fic_events (salvare eventi ricevuti)
+[x] Creare migration per tabella fic_accounts (per multi-tenant)
+[x] Creare Controller: FicWebhookController per gestire webhook multi-tenant
+[x] Creare Route: POST /api/webhooks/fic/{account_id}/{group} (con rate limiting)
 [x] Implementare verifica subscription (GET con challenge)
 [x] Implementare verifica JWT per notifiche POST
+[x] Implementare CloudEvents format (Binary e Structured mode)
+[x] Implementare queue jobs per processare webhook in background (ProcessFicWebhook)
+[x] Implementare broadcasting real-time via Reverb (WebhookReceived event)
 [ ] Testare con account trial FIC
 Testing
 [ ] Test unitari per verifica webhook
@@ -30,7 +33,7 @@ Testing
 [ ] Test end-to-end: creare entity in FIC → ricevere webhook
 5. Configurazioni aggiuntive
 A. Sicurezza
-Rate limiting per endpoint webhook
+Rate limiting per endpoint webhook (forse non è necessario, vedremo in seguito)
 Middleware per validazione IP (se FIC fornisce IP whitelist)
 Logging delle richieste webhook per audit
 Encryption delle credenziali in database (Laravel Encryption)

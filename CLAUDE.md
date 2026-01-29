@@ -8,12 +8,18 @@ Laravel 12 application with **multi-tenant Fatture in Cloud (FIC) integration**.
 
 **Tech Stack:** Laravel 12, Inertia.js + Vue 3, Reverb (WebSockets), PostgreSQL, Redis, Docker Sail
 
+**AI Development:** This project uses Laravel Boost MCP server for enhanced AI-assisted development. See [Laravel Boost Integration](#configuration) section below for available tools.
+
 ## Common Commands
 
 ### Development Environment
 
 ```bash
-# Standard workflow (recommended)
+
+# Standard workflow
+composer run dev                         # Now it runs the single-start workflow
+
+# Single-start workflow
 sail up -d                               # Start Docker containers (Laravel, PostgreSQL, Redis)
 sail up -d ngrok                         # Start ngrok tunnel (for webhooks/Reverb)
 sail npm run dev                         # Start Vite dev server (hot reload)
@@ -25,65 +31,11 @@ sail artisan queue:listen --tries=1
 sail open
 
 # Alternative: run all services in parallel (without ngrok)
-vendor/bin/sail composer run dev         # Runs: server + queue + pail + vite
+# vendor/bin/sail composer run dev         # Runs: server + queue + pail + vite
 ```
+## Most cli commands
 
-### Testing
 
-```bash
-# Run all tests
-vendor/bin/sail artisan test --compact
-
-# Run specific test file
-vendor/bin/sail artisan test --compact tests/Feature/FicSyncTest.php
-
-# Run tests matching pattern
-vendor/bin/sail artisan test --compact --filter=testWebhookProcessing
-```
-
-### Code Quality
-
-```bash
-# Format code (ALWAYS run before commits)
-vendor/bin/sail bin pint --dirty
-
-# Test formatting without changes
-vendor/bin/sail bin pint --test
-```
-
-### FIC Artisan Commands
-
-```bash
-# Sync resources from FIC API
-vendor/bin/sail artisan fic:sync [resource]     # resource: clients, suppliers, invoices, quotes, all
-vendor/bin/sail artisan fic:sync clients --account-id=123
-
-# OAuth debugging
-vendor/bin/sail artisan oauth:logs --level=error --since="1 hour ago"
-
-# Webhook subscriptions
-vendor/bin/sail artisan fic:create-subscription {account_id} {event_type}
-vendor/bin/sail artisan fic:subscriptions:list
-vendor/bin/sail artisan fic:subscriptions:refresh    # Renew expiring subscriptions
-vendor/bin/sail artisan fic:subscriptions:sync       # Sync FIC → local DB
-
-# Account management
-vendor/bin/sail artisan fic:accounts:list
-
-# Webhook diagnostics
-vendor/bin/sail artisan fic:webhook:diagnose
-
-# List all FIC events
-vendor/bin/sail artisan fic:events:list --status=pending
-```
-
-### Database
-
-```bash
-vendor/bin/sail artisan migrate
-vendor/bin/sail artisan migrate:fresh --seed
-vendor/bin/sail artisan db:seed
-```
 
 ## Architecture
 
@@ -246,7 +198,7 @@ vendor/bin/sail artisan queue:listen --tries=1
 Always create factories and seeders when creating models:
 ```bash
 vendor/bin/sail artisan make:model FicDocument -mfs
-# -m: migration, -f: factory, -s: seeder
+# -m: migration, -f: factory, -s: seeder | -a: migration, seeder, factory, policy, resource controller, and form request classes for the model | -c: controller, -r: resource controller (CRUD)
 ```
 
 ### Form Validation
@@ -303,12 +255,63 @@ app(FicCacheService::class)->invalidateAll($teamId);
 - Reverb: `REVERB_APP_KEY`, `REVERB_HOST`, `REVERB_PORT`, `REVERB_SCHEME`
 
 **Laravel Boost Integration:**
-This project uses Laravel Boost MCP server. Available tools:
-- `search-docs`: Search Laravel ecosystem documentation (use BEFORE making changes)
-- `tinker`: Execute PHP/Eloquent queries for debugging
-- `database-query`: Read from database
-- `browser-logs`: Read browser console logs
-- `get-absolute-url`: Get correct project URL
+
+This project uses **Laravel Boost MCP server** (configured in `.cursor/rules/laravel-boost.mdc`), which provides specialized tools for Laravel development. Claude Code will automatically use these tools when appropriate.
+
+### Available Laravel Boost Tools
+
+**1. `search-docs` - Documentation Search (CRITICAL)**
+- **When to use:** BEFORE making any code changes involving Laravel or ecosystem packages
+- **What it does:** Searches version-specific documentation for your exact package versions
+- **Packages supported:** Laravel, Inertia, Livewire, Filament, Tailwind, Pest, PHPUnit, Reverb, Sanctum, etc.
+- **Example queries:**
+  - `['rate limiting', 'routing rate limiting']` - Multiple broad queries work best
+  - `'form validation request'` - For finding Form Request documentation
+  - `'eloquent relationships'` - For relationship patterns
+- **Important:** Don't include package names in queries (e.g., use `'test resource'` not `'phpunit test resource'`)
+
+**2. `tinker` - PHP/Eloquent REPL**
+- **When to use:** When you need to execute PHP code for debugging or testing queries
+- **What it does:** Runs PHP code in Laravel's context with access to all models and services
+- **Examples:**
+  ```php
+  User::count()  // Check user count
+  FicAccount::with('team')->first()  // Test relationships
+  config('fattureincloud.client_id')  // Check config values
+  ```
+
+**3. `database-query` - Direct Database Access**
+- **When to use:** When you only need to read data from the database
+- **What it does:** Executes raw SQL queries (read-only)
+- **Prefer:** Use `tinker` with Eloquent instead when possible
+
+**4. `browser-logs` - Frontend Console Logs**
+- **When to use:** Debugging Vue/Inertia frontend issues
+- **What it does:** Reads browser console logs, errors, and exceptions
+- **Note:** Only recent logs are useful - ignore old entries
+
+**5. `get-absolute-url` - URL Helper**
+- **When to use:** When sharing project URLs with the user
+- **What it does:** Returns correct scheme, domain/IP, and port for the application
+
+**6. `list-artisan-commands` - Artisan Command Reference**
+- **When to use:** Before calling an Artisan command to verify available parameters
+- **What it does:** Lists all available Artisan commands and their options
+- **Example:** Check before running `make:model` to see all available flags
+
+### Workflow Best Practices
+
+1. **Always search docs first:** Use `search-docs` before implementing Laravel features
+2. **Use tinker for verification:** Test Eloquent queries and relationships before writing code
+3. **Check browser logs:** When frontend doesn't behave as expected
+4. **Verify commands:** Use `list-artisan-commands` to ensure correct command usage
+
+### Troubleshooting
+
+**If Laravel Boost tools don't work:**
+- Ask the user to **restart the MCP server in Cursor**
+- Check that `.cursor/rules/laravel-boost.mdc` exists
+- Verify MCP server configuration in Cursor settings
 
 ## Multi-Tenant OAuth Roadmap
 
