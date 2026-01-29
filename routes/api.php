@@ -5,7 +5,6 @@ use App\Http\Controllers\FicDocumentController;
 use App\Http\Controllers\FicSubscriptionController;
 use App\Http\Controllers\FicSyncController;
 use App\Http\Controllers\FicWebhookController;
-use App\Http\Controllers\WebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -25,7 +24,7 @@ Route::prefix('fic/oauth')->group(function () {
     Route::get('/redirect', [FattureInCloudOAuthController::class, 'redirect'])
         ->middleware('auth:sanctum')
         ->name('fic.oauth.redirect');
-    
+
     // Callback doesn't require authentication (called by external OAuth provider)
     // User info is retrieved from state parameter stored in Redis
     Route::get('/callback', [FattureInCloudOAuthController::class, 'callback'])
@@ -41,11 +40,6 @@ Route::prefix('fic')->group(function () {
     Route::get('/test', [FattureInCloudOAuthController::class, 'test'])
         ->name('fic.test');
 });
-
-// Fatture in Cloud Webhook endpoint
-// Supports both GET (subscription verification) and POST (notifications)
-Route::match(['get', 'post'], '/webhooks/fattureincloud', [WebhookController::class, 'handle'])
-    ->name('webhooks.fattureincloud');
 
 // Fatture in Cloud Multi-Tenant Webhook endpoints
 // Dynamic routes with account_id and event_group parameters
