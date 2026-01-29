@@ -5,9 +5,9 @@
             "args": [
                 "compose",
                 "--project-directory",
-                "/home/manager/projects/piattaformone/piattaformone",
+                "/home/manager/projects/piattaformone",
                 "--file",
-                "/home/manager/projects/piattaformone/piattaformone/docker-compose.yml",
+                "/home/manager/projects/piattaformone/docker-compose.yml",
                 "exec",
                 "-T",
                 "laravel.test",
