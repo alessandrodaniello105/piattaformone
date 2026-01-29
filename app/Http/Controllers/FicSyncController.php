@@ -347,57 +347,38 @@ class FicSyncController extends Controller
                     }
 
                     // Sync subscription to database
-                    // First try to find by fic_subscription_id (unique constraint)
-                    $existing = FicSubscription::where('fic_subscription_id', $ficSubId)->first();
-
-                    if ($existing) {
-                        // Update existing subscription
-                        $existing->update([
+                    // Use fic_subscription_id as the ONLY unique key
+                    // This allows multiple subscriptions with the same event_group
+                    // (e.g., separate subscriptions for clients and suppliers both in 'entity' group)
+                    $subscription = FicSubscription::updateOrCreate(
+                        [
+                            'fic_subscription_id' => $ficSubId,
+                        ],
+                        [
                             'fic_account_id' => $account->id,
                             'event_group' => $eventGroup,
                             'is_active' => $verified,
                             'webhook_secret' => null, // API doesn't return secret
                             'expires_at' => null, // API doesn't return expiration
-                        ]);
-                        $stats['subscriptions']['updated']++;
-                        Log::info('FIC Sync: Updated subscription', [
+                        ]
+                    );
+
+                    if ($subscription->wasRecentlyCreated) {
+                        $stats['subscriptions']['created']++;
+                        Log::info('FIC Sync: Created subscription', [
                             'account_id' => $account->id,
-                            'subscription_id' => $existing->id,
+                            'subscription_id' => $subscription->id,
                             'fic_subscription_id' => $ficSubId,
                             'event_group' => $eventGroup,
                         ]);
                     } else {
-                        // Try to find by account_id + event_group as fallback
-                        $subscription = FicSubscription::updateOrCreate(
-                            [
-                                'fic_account_id' => $account->id,
-                                'event_group' => $eventGroup,
-                            ],
-                            [
-                                'fic_subscription_id' => $ficSubId,
-                                'is_active' => $verified,
-                                'webhook_secret' => null,
-                                'expires_at' => null,
-                            ]
-                        );
-
-                        if ($subscription->wasRecentlyCreated) {
-                            $stats['subscriptions']['created']++;
-                            Log::info('FIC Sync: Created subscription', [
-                                'account_id' => $account->id,
-                                'subscription_id' => $subscription->id,
-                                'fic_subscription_id' => $ficSubId,
-                                'event_group' => $eventGroup,
-                            ]);
-                        } else {
-                            $stats['subscriptions']['updated']++;
-                            Log::info('FIC Sync: Updated subscription (found by event_group)', [
-                                'account_id' => $account->id,
-                                'subscription_id' => $subscription->id,
-                                'fic_subscription_id' => $ficSubId,
-                                'event_group' => $eventGroup,
-                            ]);
-                        }
+                        $stats['subscriptions']['updated']++;
+                        Log::info('FIC Sync: Updated subscription', [
+                            'account_id' => $account->id,
+                            'subscription_id' => $subscription->id,
+                            'fic_subscription_id' => $ficSubId,
+                            'event_group' => $eventGroup,
+                        ]);
                     }
                 }
             } catch (\Exception $e) {

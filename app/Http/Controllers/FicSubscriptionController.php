@@ -24,9 +24,6 @@ class FicSubscriptionController extends Controller
      * always return Event Types, not the original Group Types. Therefore, we
      * validate that the webhook URL matches the event_group extracted from the
      * Event Types provided, ensuring consistency.
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function store(Request $request): JsonResponse
     {
@@ -55,13 +52,13 @@ class FicSubscriptionController extends Controller
 
         // Validate that the sink URL matches the event_group
         $expectedUrlPattern = "/api/webhooks/fic/{$accountId}/{$eventGroup}";
-        if (!str_contains($sink, $expectedUrlPattern)) {
+        if (! str_contains($sink, $expectedUrlPattern)) {
             return response()->json([
                 'success' => false,
                 'error' => 'Webhook URL mismatch',
                 'message' => "The webhook URL must match the event group. Expected URL to contain: {$expectedUrlPattern}, but got: {$sink}",
                 'expected_event_group' => $eventGroup,
-                'extracted_from_types' => array_map(fn($type) => $this->extractEventGroup($type), $types),
+                'extracted_from_types' => array_map(fn ($type) => $this->extractEventGroup($type), $types),
             ], 422);
         }
 
@@ -106,7 +103,7 @@ class FicSubscriptionController extends Controller
 
             // Create WebhooksSubscription object
             $subscriptionData = new WebhooksSubscription($subscriptionDataArray);
-            
+
             // Create request with data
             $subscriptionRequest = new CreateWebhooksSubscriptionRequest([
                 'data' => $subscriptionData,
@@ -120,36 +117,25 @@ class FicSubscriptionController extends Controller
 
             // Extract subscription data from response
             $subscriptionResponse = $result->getData();
-            
+
             $ficSubscriptionId = $subscriptionResponse->getId();
             $verified = $subscriptionResponse->getVerified() ?? false;
 
-            // Check if subscription already exists in database
-            $existingSubscription = FicSubscription::where('fic_account_id', $accountId)
-                ->where('event_group', $eventGroup)
-                ->where('is_active', true)
-                ->first();
-
-            if ($existingSubscription) {
-                // Update existing subscription
-                $existingSubscription->update([
+            // Use fic_subscription_id as the ONLY unique key
+            // This allows multiple subscriptions with the same event_group
+            // (e.g., separate subscriptions for clients and suppliers both in 'entity' group)
+            $subscription = FicSubscription::updateOrCreate(
+                [
                     'fic_subscription_id' => $ficSubscriptionId,
+                ],
+                [
+                    'fic_account_id' => $accountId,
+                    'event_group' => $eventGroup,
                     'webhook_secret' => null, // SDK doesn't return secret in response
                     'expires_at' => null, // SDK doesn't return expires_at in response
                     'is_active' => true,
-                ]);
-                $subscription = $existingSubscription;
-            } else {
-                // Create new subscription
-                $subscription = FicSubscription::create([
-                    'fic_account_id' => $accountId,
-                    'fic_subscription_id' => $ficSubscriptionId,
-                    'event_group' => $eventGroup,
-                    'webhook_secret' => null,
-                    'expires_at' => null,
-                    'is_active' => true,
-                ]);
-            }
+                ]
+            );
 
             Log::info('FIC Subscription created via SDK', [
                 'subscription_id' => $subscription->id,
@@ -218,18 +204,15 @@ class FicSubscriptionController extends Controller
 
     /**
      * Extract event group from event type.
-     *
-     * @param string $eventType
-     * @return string
      */
     private function extractEventGroup(string $eventType): string
     {
-        if (!str_contains($eventType, '.')) {
+        if (! str_contains($eventType, '.')) {
             return $eventType;
         }
 
         $parts = explode('.', $eventType);
-        
+
         // Look for common patterns
         if (in_array('entities', $parts)) {
             return 'entity';
@@ -254,8 +237,6 @@ class FicSubscriptionController extends Controller
 
     /**
      * Get list of available FIC accounts.
-     *
-     * @return JsonResponse
      */
     public function accounts(): JsonResponse
     {
@@ -274,9 +255,6 @@ class FicSubscriptionController extends Controller
      *
      * Fetches all active webhook subscriptions for the specified account
      * using the WebhooksApi::listWebhooksSubscriptions() method.
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function list(Request $request): JsonResponse
     {

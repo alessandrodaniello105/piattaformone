@@ -6,25 +6,30 @@ import InputLabel from '@/Components/InputLabel.vue';
 import InputError from '@/Components/InputError.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import SecondaryButton from '@/Components/SecondaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
 import { router } from '@inertiajs/vue3';
 
 // Form state
 const form = ref({
     account_id: '',
-    sink: '',
-    types: [''],
     verification_method: 'header',
-    event_group: '',
+});
+
+// Selected resources (new approach: resource-based selection)
+const selectedResources = ref({
+    clients: false,
+    suppliers: false,
+    invoices: false,
+    quotes: false,
 });
 
 // UI state
 const accounts = ref([]);
 const loadingAccounts = ref(false);
 const submitting = ref(false);
-const error = ref(null);
-const success = ref(null);
-const successData = ref(null);
+const errors = ref([]);
+const successes = ref([]);
+const submittedCount = ref(0);
+const totalToSubmit = ref(0);
 
 // Tab state
 const activeTab = ref('create');
@@ -34,21 +39,49 @@ const subscriptions = ref([]);
 const loadingSubscriptions = ref(false);
 const subscriptionsError = ref(null);
 
-// Common event types for quick selection
-const commonEventTypes = [
-    'it.fattureincloud.webhooks.entities.clients.create',
-    'it.fattureincloud.webhooks.entities.clients.update',
-    'it.fattureincloud.webhooks.entities.clients.delete',
-    'it.fattureincloud.webhooks.entities.suppliers.create',
-    'it.fattureincloud.webhooks.entities.suppliers.update',
-    'it.fattureincloud.webhooks.entities.suppliers.delete',
-    'it.fattureincloud.webhooks.issued_documents.invoices.create',
-    'it.fattureincloud.webhooks.issued_documents.invoices.update',
-    'it.fattureincloud.webhooks.issued_documents.quotes.create',
-    'it.fattureincloud.webhooks.issued_documents.quotes.update',
-    'it.fattureincloud.webhooks.received_documents.create',
-    'it.fattureincloud.webhooks.received_documents.update',
-];
+// Resource configuration: maps resource name to event types and event group
+const resourceConfig = {
+    clients: {
+        label: 'Clienti',
+        description: 'Notifiche per creazione, modifica ed eliminazione clienti',
+        eventTypes: [
+            'it.fattureincloud.webhooks.entities.clients.create',
+            'it.fattureincloud.webhooks.entities.clients.update',
+            'it.fattureincloud.webhooks.entities.clients.delete',
+        ],
+        eventGroup: 'entity',
+    },
+    suppliers: {
+        label: 'Fornitori',
+        description: 'Notifiche per creazione, modifica ed eliminazione fornitori',
+        eventTypes: [
+            'it.fattureincloud.webhooks.entities.suppliers.create',
+            'it.fattureincloud.webhooks.entities.suppliers.update',
+            'it.fattureincloud.webhooks.entities.suppliers.delete',
+        ],
+        eventGroup: 'entity',
+    },
+    invoices: {
+        label: 'Fatture',
+        description: 'Notifiche per creazione, modifica ed eliminazione fatture',
+        eventTypes: [
+            'it.fattureincloud.webhooks.issued_documents.invoices.create',
+            'it.fattureincloud.webhooks.issued_documents.invoices.update',
+            'it.fattureincloud.webhooks.issued_documents.invoices.delete',
+        ],
+        eventGroup: 'issued_documents',
+    },
+    quotes: {
+        label: 'Preventivi',
+        description: 'Notifiche per creazione, modifica ed eliminazione preventivi',
+        eventTypes: [
+            'it.fattureincloud.webhooks.issued_documents.quotes.create',
+            'it.fattureincloud.webhooks.issued_documents.quotes.update',
+            'it.fattureincloud.webhooks.issued_documents.quotes.delete',
+        ],
+        eventGroup: 'issued_documents',
+    },
+};
 
 // Fetch subscriptions
 const fetchSubscriptions = async (accountId) => {
@@ -93,80 +126,49 @@ const fetchAccounts = async () => {
             // Auto-select first account if available
             if (accounts.value.length > 0 && !form.value.account_id) {
                 form.value.account_id = accounts.value[0].id;
-                updateSinkUrl();
-                // Fetch subscriptions to check which event types are already subscribed
+                // Fetch subscriptions to check which resources are already subscribed
                 await fetchSubscriptions(form.value.account_id);
             }
         }
     } catch (err) {
         console.error('Error fetching accounts:', err);
-        error.value = 'Errore nel caricamento degli account';
+        errors.value = ['Errore nel caricamento degli account'];
     } finally {
         loadingAccounts.value = false;
     }
 };
 
-// Extract event group from event type (must match PHP extractEventGroup logic)
-const extractEventGroup = (eventType) => {
-    if (!eventType || !eventType.includes('.')) {
-        return 'default';
+// Generate sink URL for a specific event group
+const generateSinkUrl = (eventGroup) => {
+    if (!form.value.account_id) {
+        return '';
     }
-
-    const parts = eventType.split('.');
-
-    // Look for common patterns (must match PHP logic in FicSubscriptionController)
-    if (parts.includes('entities')) {
-        return 'entity';
-    } else if (parts.includes('issued_documents')) {
-        return 'issued_documents';
-    } else if (parts.includes('products')) {
-        return 'products';
-    } else if (parts.includes('receipts')) {
-        return 'receipts';
-    } else if (parts.includes('received_documents')) {
-        return 'received_documents';
-    }
-
-    // Default: use the first meaningful part after 'webhooks'
-    const webhookIndex = parts.indexOf('webhooks');
-    if (webhookIndex !== -1 && parts[webhookIndex + 1]) {
-        return parts[webhookIndex + 1];
-    }
-
-    return 'default';
+    const baseUrl = window.location.origin;
+    return `${baseUrl}/api/webhooks/fic/${form.value.account_id}/${eventGroup}`;
 };
 
-// Update sink URL when account or event types change
-const updateSinkUrl = () => {
-    if (form.value.account_id) {
-        const baseUrl = window.location.origin;
-        // Auto-extract event_group from the first valid event type if not manually set
-        const firstType = form.value.types.find(t => t && t.trim() !== '');
-        const eventGroup = form.value.event_group || extractEventGroup(firstType) || 'default';
-        form.value.sink = `${baseUrl}/api/webhooks/fic/${form.value.account_id}/${eventGroup}`;
-    }
+// Toggle resource selection
+const toggleResource = (resourceKey) => {
+    selectedResources.value[resourceKey] = !selectedResources.value[resourceKey];
 };
 
-// Add new event type field
-const addEventType = () => {
-    form.value.types.push('');
-};
-
-// Remove event type field
-const removeEventType = (index) => {
-    if (form.value.types.length > 1) {
-        form.value.types.splice(index, 1);
+// Check if a resource is already fully subscribed
+const isResourceSubscribed = computed(() => {
+    const subscribed = {};
+    for (const resourceKey in resourceConfig) {
+        const config = resourceConfig[resourceKey];
+        const allTypesSubscribed = config.eventTypes.every(type =>
+            subscribedEventTypes.value.has(type)
+        );
+        subscribed[resourceKey] = allTypesSubscribed;
     }
-};
+    return subscribed;
+});
 
-// Add common event type
-const addCommonEventType = (eventType) => {
-    if (!form.value.types.includes(eventType)) {
-        form.value.types.push(eventType);
-        // Update sink URL with the new event type's group
-        updateSinkUrl();
-    }
-};
+// Count selected resources
+const selectedResourcesCount = computed(() => {
+    return Object.values(selectedResources.value).filter(Boolean).length;
+});
 
 // Change tab
 const changeTab = (tabId) => {
@@ -190,81 +192,105 @@ const subscribedEventTypes = computed(() => {
     return subscribed;
 });
 
-// Check if an event type is already subscribed
-const isEventTypeSubscribed = (eventType) => {
-    return subscribedEventTypes.value.has(eventType);
-};
-
-// Submit form
+// Submit form - creates one subscription per selected resource
 const submit = async () => {
-    error.value = null;
-    success.value = null;
-    successData.value = null;
+    errors.value = [];
+    successes.value = [];
+    submittedCount.value = 0;
 
     // Validate
     if (!form.value.account_id) {
-        error.value = 'Seleziona un account';
+        errors.value = ['Seleziona un account'];
         return;
     }
 
-    if (!form.value.sink || !form.value.sink.startsWith('https://')) {
-        error.value = 'L\'URL del webhook deve iniziare con https://';
-        return;
-    }
+    // Get selected resource keys
+    const selectedResourceKeys = Object.keys(selectedResources.value).filter(
+        key => selectedResources.value[key]
+    );
 
-    const validTypes = form.value.types.filter(type => type.trim() !== '');
-    if (validTypes.length === 0) {
-        error.value = 'Aggiungi almeno un tipo di evento';
+    if (selectedResourceKeys.length === 0) {
+        errors.value = ['Seleziona almeno una risorsa'];
         return;
     }
 
     try {
         submitting.value = true;
+        totalToSubmit.value = selectedResourceKeys.length;
 
-        const payload = {
-            account_id: parseInt(form.value.account_id),
-            sink: form.value.sink,
-            types: validTypes,
-            verification_method: form.value.verification_method,
-            event_group: form.value.event_group || null,
-        };
+        // Create one subscription per selected resource
+        // Add delay between requests to give FIC time to send verification challenges
+        for (let i = 0; i < selectedResourceKeys.length; i++) {
+            const resourceKey = selectedResourceKeys[i];
+            const config = resourceConfig[resourceKey];
 
-        const response = await window.axios.post('/api/fic/subscriptions', payload);
+            const payload = {
+                account_id: parseInt(form.value.account_id),
+                sink: generateSinkUrl(config.eventGroup),
+                types: config.eventTypes,
+                verification_method: form.value.verification_method,
+            };
 
-        if (response.data.success) {
-            success.value = 'Subscription creata con successo!';
-            successData.value = response.data.data.subscription;
-            
-            // Refresh subscriptions list if on list tab
-            if (activeTab.value === 'list') {
-                await fetchSubscriptions(form.value.account_id);
+            // Validate sink URL
+            if (!payload.sink.startsWith('https://')) {
+                errors.value.push(`${config.label}: L'URL del webhook deve iniziare con https://`);
+                submittedCount.value++;
+                continue;
             }
 
-            // Reset form after 3 seconds
-            setTimeout(() => {
-                form.value = {
-                    account_id: form.value.account_id, // Keep account selected
-                    sink: form.value.sink, // Keep sink URL
-                    types: [''],
-                    verification_method: 'header',
-                    event_group: '',
-                };
-                success.value = null;
-                successData.value = null;
-            }, 5000);
+            try {
+                const response = await window.axios.post('/api/fic/subscriptions', payload);
+
+                if (response.data.success) {
+                    successes.value.push({
+                        resource: config.label,
+                        subscriptionId: response.data.data.subscription.fic_subscription_id,
+                        eventGroup: response.data.data.subscription.event_group,
+                        verified: response.data.data.subscription.verified,
+                    });
+                }
+
+                // Wait 3 seconds between subscription creations (except for the last one)
+                // This gives FIC time to send verification challenge and Welcome event
+                if (i < selectedResourceKeys.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                }
+            } catch (err) {
+                console.error(`Error creating subscription for ${resourceKey}:`, err);
+                let errorMsg = `${config.label}: `;
+                if (err.response?.data?.error) {
+                    errorMsg += err.response.data.error;
+                } else if (err.response?.data?.errors) {
+                    errorMsg += Object.values(err.response.data.errors).flat().join(', ');
+                } else {
+                    errorMsg += 'Errore durante la creazione della subscription';
+                }
+                errors.value.push(errorMsg);
+            } finally {
+                submittedCount.value++;
+            }
         }
-    } catch (err) {
-        console.error('Error creating subscription:', err);
-        if (err.response?.data?.error) {
-            error.value = err.response.data.error;
-        } else if (err.response?.data?.errors) {
-            const errors = err.response.data.errors;
-            error.value = Object.values(errors).flat().join(', ');
-        } else {
-            error.value = 'Errore durante la creazione della subscription';
+
+        // Refresh subscriptions list after all submissions
+        await fetchSubscriptions(form.value.account_id);
+
+        // Reset selected resources after 5 seconds if at least one succeeded
+        if (successes.value.length > 0) {
+            setTimeout(() => {
+                selectedResources.value = {
+                    clients: false,
+                    suppliers: false,
+                    invoices: false,
+                    quotes: false,
+                };
+                successes.value = [];
+                errors.value = [];
+            }, 5000);
         }
     } finally {
         submitting.value = false;
+        totalToSubmit.value = 0;
+        submittedCount.value = 0;
     }
 };
 </script>
@@ -316,24 +342,28 @@ const submit = async () => {
                         </template>
 
                         <template #description>
-                            Crea una nuova webhook subscription per Fatture in Cloud utilizzando la SDK PHP ufficiale.
-                            La subscription verrà verificata automaticamente quando FIC invierà una richiesta di verifica.
+                            Seleziona le risorse per cui vuoi ricevere notifiche webhook da Fatture in Cloud.
+                            Ogni risorsa creerà una subscription separata con eventi di creazione, modifica ed eliminazione.
+                            Le subscriptions verranno verificate automaticamente quando FIC invierà la richiesta di challenge.
                         </template>
 
                         <template #form>
-                            <!-- Error Message -->
-                            <div v-if="error" class="col-span-6 sm:col-span-4 mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
-                                <p class="text-sm text-red-800">{{ error }}</p>
+                            <!-- Error Messages -->
+                            <div v-if="errors.length > 0" class="col-span-6 mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+                                <p class="text-sm font-semibold text-red-800 mb-2">Errori durante la creazione:</p>
+                                <ul class="list-disc list-inside text-sm text-red-700 space-y-1">
+                                    <li v-for="(error, index) in errors" :key="index">{{ error }}</li>
+                                </ul>
                             </div>
 
-                            <!-- Success Message -->
-                            <div v-if="success" class="col-span-6 sm:col-span-4 mb-4 p-4 bg-green-50 border border-green-200 rounded-md">
-                                <p class="text-sm text-green-800 font-semibold mb-2">{{ success }}</p>
-                                <div v-if="successData" class="mt-2 text-xs text-green-700">
-                                    <p><strong>Subscription ID:</strong> {{ successData.fic_subscription_id }}</p>
-                                    <p><strong>Event Group:</strong> {{ successData.event_group }}</p>
-                                    <p><strong>Verified:</strong> {{ successData.verified ? 'Sì' : 'No (in attesa di verifica)' }}</p>
-                                </div>
+                            <!-- Success Messages -->
+                            <div v-if="successes.length > 0" class="col-span-6 mb-4 p-4 bg-green-50 border border-green-200 rounded-md">
+                                <p class="text-sm font-semibold text-green-800 mb-2">✓ Subscriptions create con successo!</p>
+                                <ul class="list-disc list-inside text-xs text-green-700 space-y-1">
+                                    <li v-for="(success, index) in successes" :key="index">
+                                        <strong>{{ success.resource }}</strong>: ID {{ success.subscriptionId }} (gruppo: {{ success.eventGroup }})
+                                    </li>
+                                </ul>
                             </div>
 
                             <!-- Account Selection -->
@@ -341,31 +371,6 @@ const submit = async () => {
                                 <InputLabel for="account_id" value="Account FIC" />
                                 <select
                                     id="account_id"
-                                    v-model="form.account_id"
-                                    @change="() => { updateSinkUrl(); fetchSubscriptions(form.account_id); }"
-                                    class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                                    :disabled="loadingAccounts"
-                                >
-                                    <option value="">Seleziona un account</option>
-                                    <option
-                                        v-for="account in accounts"
-                                        :key="account.id"
-                                        :value="account.id"
-                                    >
-                                        {{ account.name || account.company_name }} (ID: {{ account.company_id }})
-                                    </option>
-                                </select>
-                                <InputError :message="null" class="mt-2" />
-                                <p class="mt-1 text-xs text-gray-500">
-                                    Seleziona l'account Fatture in Cloud per cui creare la subscription
-                                </p>
-                            </div>
-
-                            <!-- Account Selection for List Tab -->
-                            <div v-if="activeTab === 'list'" class="col-span-6 sm:col-span-4">
-                                <InputLabel for="list_account_id" value="Account FIC" />
-                                <select
-                                    id="list_account_id"
                                     v-model="form.account_id"
                                     @change="fetchSubscriptions(form.account_id)"
                                     class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
@@ -380,122 +385,101 @@ const submit = async () => {
                                         {{ account.name || account.company_name }} (ID: {{ account.company_id }})
                                     </option>
                                 </select>
-                                <p class="mt-1 text-xs text-gray-500">
-                                    Seleziona l'account Fatture in Cloud per visualizzare le subscriptions
-                                </p>
-                            </div>
-
-                            <!-- Webhook URL (Sink) -->
-                            <div class="col-span-6 sm:col-span-4">
-                                <InputLabel for="sink" value="Webhook URL (Sink)" />
-                                <TextInput
-                                    id="sink"
-                                    v-model="form.sink"
-                                    type="url"
-                                    class="mt-1 block w-full"
-                                    placeholder="https://example.com/webhooks/fic"
-                                />
                                 <InputError :message="null" class="mt-2" />
                                 <p class="mt-1 text-xs text-gray-500">
-                                    L'URL dove FIC invierà le notifiche. Deve essere HTTPS.
+                                    Seleziona l'account Fatture in Cloud per cui creare le subscriptions
                                 </p>
                             </div>
 
-                            <!-- Event Types -->
+                            <!-- Resource Selection -->
                             <div class="col-span-6">
-                                <InputLabel value="Tipi di Evento" />
-                                <div class="mt-2 space-y-2">
-                                    <div
-                                        v-for="(type, index) in form.types"
-                                        :key="index"
-                                        class="flex gap-2"
-                                    >
-                                        <TextInput
-                                            v-model="form.types[index]"
-                                            type="text"
-                                            class="flex-1"
-                                            :placeholder="`it.fattureincloud.webhooks.entities.clients.create`"
-                                        />
-                                        <button
-                                            v-if="form.types.length > 1"
-                                            type="button"
-                                            @click="removeEventType(index)"
-                                            class="px-3 py-2 text-sm text-red-600 hover:text-red-800"
-                                        >
-                                            Rimuovi
-                                        </button>
-                                    </div>
-                                </div>
-                                <button
-                                    type="button"
-                                    @click="addEventType"
-                                    class="mt-2 text-sm text-indigo-600 hover:text-indigo-800"
-                                >
-                                    + Aggiungi altro tipo di evento
-                                </button>
-                                <p class="mt-1 text-xs text-gray-500">
-                                    Aggiungi i tipi di evento a cui vuoi sottoscriverti
+                                <InputLabel value="Seleziona Risorse" />
+                                <p class="mt-1 text-xs text-gray-500 mb-4">
+                                    Seleziona le risorse per cui vuoi ricevere notifiche webhook. Ogni risorsa includerà automaticamente eventi di creazione, modifica ed eliminazione.
                                 </p>
-                            </div>
 
-                            <!-- Quick Add Common Event Types -->
-                            <div class="col-span-6">
-                                <InputLabel value="Aggiungi rapidamente eventi comuni" />
-                                <div class="mt-2 flex flex-wrap gap-2">
+                                <!-- Resource Cards -->
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
                                     <button
-                                        v-for="eventType in commonEventTypes"
-                                        :key="eventType"
+                                        v-for="(config, key) in resourceConfig"
+                                        :key="key"
                                         type="button"
-                                        @click="addCommonEventType(eventType)"
-                                        :disabled="isEventTypeSubscribed(eventType)"
+                                        @click="toggleResource(key)"
+                                        :disabled="isResourceSubscribed[key]"
                                         :class="[
-                                            'px-3 py-1 text-xs rounded-md transition-colors',
-                                            isEventTypeSubscribed(eventType)
-                                                ? 'bg-gray-50 text-gray-400 cursor-not-allowed'
-                                                : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                                            'relative p-4 border-2 rounded-lg text-left transition-all',
+                                            selectedResources[key]
+                                                ? 'border-indigo-500 bg-indigo-50'
+                                                : isResourceSubscribed[key]
+                                                    ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60'
+                                                    : 'border-gray-300 hover:border-gray-400 bg-white'
                                         ]"
-                                        :title="isEventTypeSubscribed(eventType) ? 'Questo tipo di evento è già sottoscritto' : ''"
                                     >
-                                        {{ eventType.split('.').splice(-2).join(' ') }}
-                                        <span v-if="isEventTypeSubscribed(eventType)" class="ml-1">✓</span>
+                                        <!-- Checkbox Icon -->
+                                        <div class="flex items-start gap-3">
+                                            <div :class="[
+                                                'flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center mt-0.5',
+                                                selectedResources[key]
+                                                    ? 'bg-indigo-500 border-indigo-500'
+                                                    : isResourceSubscribed[key]
+                                                        ? 'bg-gray-300 border-gray-300'
+                                                        : 'border-gray-400'
+                                            ]">
+                                                <svg v-if="selectedResources[key] || isResourceSubscribed[key]" class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+                                                </svg>
+                                            </div>
+                                            <div class="flex-1">
+                                                <h3 :class="[
+                                                    'font-semibold text-sm',
+                                                    selectedResources[key]
+                                                        ? 'text-indigo-900'
+                                                        : isResourceSubscribed[key]
+                                                            ? 'text-gray-500'
+                                                            : 'text-gray-900'
+                                                ]">
+                                                    {{ config.label }}
+                                                    <span v-if="isResourceSubscribed[key]" class="ml-2 text-xs font-normal text-green-600">✓ Già sottoscritto</span>
+                                                </h3>
+                                                <p :class="[
+                                                    'text-xs mt-1',
+                                                    selectedResources[key]
+                                                        ? 'text-indigo-700'
+                                                        : isResourceSubscribed[key]
+                                                            ? 'text-gray-400'
+                                                            : 'text-gray-500'
+                                                ]">
+                                                    {{ config.description }}
+                                                </p>
+                                                <div class="mt-2 text-xs text-gray-400 font-mono">
+                                                    <p>• {{ config.eventTypes.length }} eventi</p>
+                                                    <p>• Gruppo: {{ config.eventGroup }}</p>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </button>
                                 </div>
-                                <p class="mt-1 text-xs text-gray-500">
-                                    I tipi di evento già sottoscritti sono disabilitati
-                                </p>
+
+                                <!-- Selection Summary -->
+                                <div v-if="selectedResourcesCount > 0" class="mt-4 p-3 bg-indigo-50 border border-indigo-200 rounded-md">
+                                    <p class="text-sm text-indigo-800">
+                                        <strong>{{ selectedResourcesCount }}</strong> {{ selectedResourcesCount === 1 ? 'risorsa selezionata' : 'risorse selezionate' }}
+                                        → verranno create <strong>{{ selectedResourcesCount }}</strong> {{ selectedResourcesCount === 1 ? 'subscription' : 'subscriptions' }}
+                                    </p>
+                                </div>
                             </div>
 
-                            <!-- Verification Method -->
-                            <div class="col-span-6 sm:col-span-4">
-                                <InputLabel for="verification_method" value="Metodo di Verifica" />
-                                <select
-                                    id="verification_method"
-                                    v-model="form.verification_method"
-                                    class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                                >
-                                    <option value="header">Header</option>
-                                    <option value="query">Query Parameter</option>
-                                </select>
-                                <p class="mt-1 text-xs text-gray-500">
-                                    Metodo utilizzato per la verifica della subscription
-                                </p>
-                            </div>
-
-                            <!-- Event Group (Optional) -->
-                            <div class="col-span-6 sm:col-span-4">
-                                <InputLabel for="event_group" value="Event Group (Opzionale)" />
-                                <TextInput
-                                    id="event_group"
-                                    v-model="form.event_group"
-                                    type="text"
-                                    class="mt-1 block w-full"
-                                    placeholder="entity"
-                                    @input="updateSinkUrl"
-                                />
-                                <InputError :message="null" class="mt-2" />
-                                <p class="mt-1 text-xs text-gray-500">
-                                    Gruppo di eventi per il routing (es: entity, issued_documents). Se vuoto, verrà estratto automaticamente dal tipo di evento.
-                                </p>
+                            <!-- Info Box -->
+                            <div class="col-span-6">
+                                <div class="p-4 bg-blue-50 border border-blue-200 rounded-md">
+                                    <h4 class="text-sm font-semibold text-blue-900 mb-2">ℹ️ Come funziona</h4>
+                                    <ul class="text-xs text-blue-800 space-y-1 list-disc list-inside">
+                                        <li>Ogni risorsa creerà una subscription separata (Principio del Minimo Privilegio)</li>
+                                        <li>Ogni subscription include automaticamente eventi create, update e delete</li>
+                                        <li>Gli URL webhook vengono generati automaticamente per ogni risorsa</li>
+                                        <li>Le risorse già sottoscritte sono contrassegnate e non possono essere riselezionate</li>
+                                    </ul>
+                                </div>
                             </div>
                         </template>
 
@@ -503,15 +487,20 @@ const submit = async () => {
                             <SecondaryButton type="button" @click="router.visit('/dashboard')">
                                 Annulla
                             </SecondaryButton>
-                            <PrimaryButton :disabled="submitting || loadingAccounts">
+                            <PrimaryButton :disabled="submitting || loadingAccounts || selectedResourcesCount === 0">
                                 <span v-if="submitting" class="flex items-center">
                                     <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                     </svg>
-                                    Creazione...
+                                    <span v-if="totalToSubmit > 0">
+                                        Creazione... ({{ submittedCount }}/{{ totalToSubmit }})
+                                    </span>
+                                    <span v-else>Creazione...</span>
                                 </span>
-                                <span v-else>Crea Subscription</span>
+                                <span v-else>
+                                    {{ selectedResourcesCount > 0 ? `Crea ${selectedResourcesCount} Subscription${selectedResourcesCount > 1 ? 's' : ''}` : 'Crea Subscriptions' }}
+                                </span>
                             </PrimaryButton>
                         </template>
                     </FormSection>

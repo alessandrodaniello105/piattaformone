@@ -343,6 +343,25 @@ class FicWebhookController extends Controller
             ], 400);
         }
 
+        // Handle Welcome Event (subscription verification confirmation)
+        if ($ceType === 'it.fattureincloud.webhooks.subscriptions.welcome') {
+            Log::info('FIC Webhook: Welcome event received (subscription verified!)', [
+                'account_id' => $accountId,
+                'event_group' => $group,
+                'ce_id' => $ceId,
+            ]);
+
+            // Mark subscription as verified
+            // Note: We can't mark it as "verified" in our DB because the FIC API doesn't return
+            // a verified field in the response. We rely on sync to update this status.
+            // But we can log it and return success.
+
+            return response()->json([
+                'status' => 'accepted',
+                'message' => 'Welcome event received - subscription verified!',
+            ], 202);
+        }
+
         // Log structured information about IDs received
         Log::info('FIC Webhook: Event data received', [
             'account_id' => $accountId,
