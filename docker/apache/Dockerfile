@@ -31,6 +31,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Install LibreOffice for DOCX to PDF conversion
+RUN apt-get update && apt-get install -y \
+    libreoffice-writer \
+    libreoffice-common \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Configure Apache
 RUN a2enmod rewrite
 RUN a2enmod headers

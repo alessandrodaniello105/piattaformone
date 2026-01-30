@@ -58,6 +58,9 @@ const needsActionsConfig = computed(() => {
     return hasActionVariables.value && selectedResources.value.client !== null;
 });
 
+// PDF export option
+const includePdf = ref(false);
+
 // Step 4: Variable mapping
 const variableMapping = ref({}); // Maps variable -> fieldPath
 const variableValues = ref({}); // Maps variable -> actual value
@@ -304,6 +307,7 @@ const compileDocument = async () => {
         const payload = {
             file_token: fileToken.value,
             variable_mapping: finalMapping,
+            include_pdf: includePdf.value,
         };
 
         // Add action parameters if client is selected and action dates are provided
@@ -468,6 +472,7 @@ const reset = () => {
     unmappedVariables.value = [];
     actionStartDate.value = '';
     actionEndDate.value = '';
+    includePdf.value = false;
     if (fileInput.value) {
         fileInput.value.value = '';
     }
@@ -720,6 +725,23 @@ const mappedCount = computed(() => {
                                     </div>
                                 </div>
                             </div>
+
+                            <!-- PDF Export Option -->
+                            <div class="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-md">
+                                <label class="flex items-center cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        v-model="includePdf"
+                                        class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                                    />
+                                    <span class="ml-3 text-sm">
+                                        <span class="font-medium text-gray-900">📄 Includi PDF</span>
+                                        <span class="text-gray-600 block mt-1">
+                                            Scarica un file ZIP contenente sia il documento DOCX che la versione PDF.
+                                        </span>
+                                    </span>
+                                </label>
+                            </div>
                         </div>
 
                         <div class="flex gap-4">
@@ -804,6 +826,24 @@ const mappedCount = computed(() => {
                                     </div>
                                 </div>
                             </div>
+
+                            <!-- PDF Export Option (Manual Mapping Mode) -->
+                            <div class="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-md">
+                                <label class="flex items-center cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        v-model="includePdf"
+                                        class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                                    />
+                                    <span class="ml-3 text-sm">
+                                        <span class="font-medium text-gray-900">📄 Includi PDF</span>
+                                        <span class="text-gray-600 block mt-1">
+                                            Scarica un file ZIP contenente sia il documento DOCX che la versione PDF.
+                                        </span>
+                                    </span>
+                                </label>
+                            </div>
+
                             <div class="mt-6 flex gap-4">
                                 <SecondaryButton @click="prevStep">Indietro</SecondaryButton>
                                 <PrimaryButton @click="compileDocument" :disabled="!canCompile || compiling">

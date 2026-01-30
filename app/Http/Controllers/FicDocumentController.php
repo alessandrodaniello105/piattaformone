@@ -9,6 +9,7 @@ use App\Models\FicInvoice;
 use App\Models\FicQuote;
 use App\Models\FicSupplier;
 use App\Services\DocxVariableReplacer;
+use App\Services\PdfConversionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -144,6 +145,7 @@ class FicDocumentController extends Controller
                 'resources.*.id' => 'required|integer',
                 'resources.*.action_start_date' => 'nullable|date',
                 'resources.*.action_end_date' => 'nullable|date|after_or_equal:resources.*.action_start_date',
+                'include_pdf' => 'nullable|boolean',
             ]);
         } catch (ValidationException $e) {
             return response()->json([
@@ -167,7 +169,9 @@ class FicDocumentController extends Controller
             }
 
             $replacer = new DocxVariableReplacer;
+            $pdfService = new PdfConversionService;
             $compiledFiles = [];
+            $includePdf = $validated['include_pdf'] ?? false;
 
             // Compile a document for each resource
             foreach ($validated['resources'] as $resource) {
@@ -204,10 +208,31 @@ class FicDocumentController extends Controller
                     $replacementData
                 );
 
+                $baseFilename = $resource['type'].'_'.$resource['id'].'_'.date('Ymd_His');
+
+                // Add DOCX to compiled files
                 $compiledFiles[] = [
                     'path' => $compiledPath,
-                    'filename' => $resource['type'].'_'.$resource['id'].'_'.date('Ymd_His').'.docx',
+                    'filename' => $baseFilename.'.docx',
                 ];
+
+                // If include_pdf is true, convert to PDF and add it too
+                if ($includePdf) {
+                    try {
+                        $pdfPath = $pdfService->convertDocxToPdf($compiledPath);
+                        $compiledFiles[] = [
+                            'path' => $pdfPath,
+                            'filename' => $baseFilename.'.pdf',
+                        ];
+                    } catch (\Exception $e) {
+                        // Log error but continue with other files
+                        \Log::error('Failed to convert DOCX to PDF in batch', [
+                            'resource_type' => $resource['type'],
+                            'resource_id' => $resource['id'],
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
 
                 // Clean up the temp copy
                 Storage::disk('local')->delete($resourceTempPath);
@@ -273,6 +298,7 @@ class FicDocumentController extends Controller
                 'client_id' => 'nullable|integer',
                 'action_start_date' => 'nullable|date',
                 'action_end_date' => 'nullable|date|after_or_equal:action_start_date',
+                'include_pdf' => 'nullable|boolean',
             ]);
         } catch (ValidationException $e) {
             return response()->json([
@@ -325,7 +351,47 @@ class FicDocumentController extends Controller
             // Clean up the uploaded template file
             Storage::disk('local')->delete($tempPath);
 
-            // Return the compiled file as download
+            // If include_pdf is true, convert to PDF and return ZIP
+            if ($validated['include_pdf'] ?? false) {
+                $pdfService = new PdfConversionService;
+                $pdfPath = $pdfService->convertDocxToPdf($compiledPath);
+
+                // Create ZIP with both DOCX and PDF
+                $zipPath = storage_path('app/temp/compiled_'.uniqid().'.zip');
+                $zip = new ZipArchive;
+
+                if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+                    // Clean up files
+                    if (file_exists($compiledPath)) {
+                        unlink($compiledPath);
+                    }
+                    if (file_exists($pdfPath)) {
+                        unlink($pdfPath);
+                    }
+
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'Failed to create ZIP archive',
+                    ], 500);
+                }
+
+                $baseFilename = 'compiled_'.date('Y-m-d_His');
+                $zip->addFile($compiledPath, $baseFilename.'.docx');
+                $zip->addFile($pdfPath, $baseFilename.'.pdf');
+                $zip->close();
+
+                // Clean up individual files
+                if (file_exists($compiledPath)) {
+                    unlink($compiledPath);
+                }
+                if (file_exists($pdfPath)) {
+                    unlink($pdfPath);
+                }
+
+                return response()->download($zipPath, $baseFilename.'.zip')->deleteFileAfterSend(true);
+            }
+
+            // Return the compiled DOCX file as download
             $filename = 'compiled_'.date('Y-m-d_His').'.docx';
 
             return response()->download($compiledPath, $filename)->deleteFileAfterSend(true);

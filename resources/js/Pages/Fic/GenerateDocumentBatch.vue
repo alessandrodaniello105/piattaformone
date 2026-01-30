@@ -48,6 +48,9 @@ const requiredResourceTypes = ref([]);
 // Actions configuration (Step 3)
 const actionsConfig = ref({}); // { clientId: { start: '2026-01-01', end: '2026-01-30' } }
 
+// PDF export option
+const includePdf = ref(false);
+
 // Manual mapping state (if simpleMapping is false)
 const currentMappingResourceIndex = ref(0);
 const resourceMappings = ref([]); // Array of { resourceId, resourceType, variableMapping, variableValues }
@@ -312,6 +315,7 @@ const compileBatchDocuments = async () => {
         const response = await window.axios.post('/api/fic/documents/compile-batch', {
             file_token: fileToken.value,
             resources: batchResources,
+            include_pdf: includePdf.value,
         }, {
             responseType: 'blob',
         });
@@ -582,8 +586,25 @@ const getClientName = (clientId) => {
                             </p>
                         </div>
 
+                        <!-- PDF Export Option -->
+                        <div class="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-md">
+                            <label class="flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    v-model="includePdf"
+                                    class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                                />
+                                <span class="ml-3 text-sm">
+                                    <span class="font-medium text-gray-900">📄 Includi PDF</span>
+                                    <span class="text-gray-600 block mt-1">
+                                        Lo ZIP conterrà sia i file DOCX che le versioni PDF di ogni documento.
+                                    </span>
+                                </span>
+                            </label>
+                        </div>
+
                         <!-- Actions -->
-                        <div class="flex gap-4">
+                        <div class="mt-4 flex gap-4">
                             <SecondaryButton @click="prevStep">Indietro</SecondaryButton>
 
                             <PrimaryButton
@@ -662,7 +683,24 @@ const getClientName = (clientId) => {
                             </div>
                         </div>
 
-                        <div class="mt-6 flex gap-4">
+                        <!-- PDF Export Option -->
+                        <div class="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-md">
+                            <label class="flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    v-model="includePdf"
+                                    class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                                />
+                                <span class="ml-3 text-sm">
+                                    <span class="font-medium text-gray-900">📄 Includi PDF</span>
+                                    <span class="text-gray-600 block mt-1">
+                                        Lo ZIP conterrà sia i file DOCX che le versioni PDF di ogni documento.
+                                    </span>
+                                </span>
+                            </label>
+                        </div>
+
+                        <div class="mt-4 flex gap-4">
                             <SecondaryButton @click="prevStep">Indietro</SecondaryButton>
                             <PrimaryButton
                                 @click="proceedFromActionsConfig"
