@@ -382,7 +382,7 @@ const submit = async () => {
                                         :key="account.id"
                                         :value="account.id"
                                     >
-                                        {{ account.name || account.company_name }} (ID: {{ account.company_id }})
+                                        {{ account.company_name || account.name }} (ID: {{ account.company_id }})
                                     </option>
                                 </select>
                                 <InputError :message="null" class="mt-2" />

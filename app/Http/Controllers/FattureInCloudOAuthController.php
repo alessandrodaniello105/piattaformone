@@ -717,6 +717,24 @@ class FattureInCloudOAuthController extends Controller
             'tenant_id' => $account->tenant_id,
         ]);
 
+        // Fetch and update full company info (name, email, metadata)
+        try {
+            $connectionService = app(\App\Services\FicConnectionService::class);
+            $companyInfo = $connectionService->refreshCompanyInfo($account, clearCache: false);
+
+            Log::info('FIC OAuth: Company info refreshed', [
+                'account_id' => $account->id,
+                'company_name' => $companyInfo['name'] ?? null,
+                'company_email' => $companyInfo['email'] ?? null,
+            ]);
+        } catch (\Exception $e) {
+            // Log but don't fail the OAuth flow if company info fetch fails
+            Log::warning('FIC OAuth: Failed to fetch detailed company info', [
+                'account_id' => $account->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         return $account;
     }
 }

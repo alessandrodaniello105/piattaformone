@@ -237,12 +237,42 @@ class FicSubscriptionController extends Controller
 
     /**
      * Get list of available FIC accounts.
+     *
+     * Also refreshes company info for active accounts if stale (24h+).
      */
     public function accounts(): JsonResponse
     {
         $accounts = FicAccount::whereNotNull('access_token')
             ->select('id', 'name', 'company_id', 'company_name', 'status')
             ->get();
+
+        // Refresh company info for active accounts if stale
+        $connectionService = app(\App\Services\FicConnectionService::class);
+
+        foreach ($accounts as $account) {
+            // Only refresh active accounts
+            if ($account->status === 'active' && !$account->isTokenExpired()) {
+                // Check if refresh is needed (24h+ since last update)
+                if ($connectionService->shouldRefreshCompanyInfo($account)) {
+                    try {
+                        $connectionService->refreshCompanyInfo($account, clearCache: false);
+                        // Reload account to get updated data
+                        $account->refresh();
+
+                        Log::info('FIC Subscriptions: Company info refreshed for account', [
+                            'account_id' => $account->id,
+                            'company_name' => $account->company_name,
+                        ]);
+                    } catch (\Exception $e) {
+                        // Log but don't fail the accounts list
+                        Log::warning('FIC Subscriptions: Failed to refresh company info for account', [
+                            'account_id' => $account->id,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+            }
+        }
 
         return response()->json([
             'success' => true,

@@ -1710,6 +1710,156 @@ class FicApiService
     }
 
     /**
+     * Fetch company info from FIC API.
+     *
+     * Gets the current company details including name, email, and other metadata.
+     * Useful for keeping FicAccount data in sync with FIC.
+     *
+     * @return array Company info with keys: id, name, email, type, plan_info, etc.
+     *
+     * @throws \Exception If the API call fails
+     */
+    public function fetchCompanyInfo(): array
+    {
+        $this->initializeSdk();
+
+        // Try SDK first
+        if (class_exists(\FattureInCloud\Api\CompaniesApi::class)) {
+            return $this->fetchCompanyInfoViaApi();
+        }
+
+        // Fallback to HTTP
+        return $this->fetchCompanyInfoViaHttp();
+    }
+
+    /**
+     * Fetch company info using CompaniesApi (SDK method).
+     */
+    private function fetchCompanyInfoViaApi(): array
+    {
+        $companiesApi = new \FattureInCloud\Api\CompaniesApi($this->httpClient, $this->config);
+        $companyId = $this->account->company_id;
+
+        Log::info('FIC API: Fetching company info via API', [
+            'account_id' => $this->account->id,
+            'company_id' => $companyId,
+        ]);
+
+        try {
+            $response = $companiesApi->getCompanyInfo($companyId);
+
+            Log::info('FIC API: Company info response', [
+                'response' => $response,
+            ]);
+
+            // Extract data from Response object
+            $companyInfo = $response->getData();
+
+            if ($companyInfo === null) {
+                throw new \RuntimeException('Empty response from FIC API');
+            }
+
+            // Convert to array
+            // if (method_exists($companyInfo, 'toArray')) {
+            //     return $companyInfo->toArray();
+            // } elseif (method_exists($companyInfo, 'jsonSerialize')) {
+            //     return $companyInfo->jsonSerialize();
+            // }
+
+            // Fallback: try to extract via getters
+            return [
+                'id' => method_exists($companyInfo, 'getId') ? $companyInfo->getId() : null,
+                'name' => method_exists($companyInfo, 'getName') ? $companyInfo->getName() : null,
+                'email' => method_exists($companyInfo, 'getEmail') ? $companyInfo->getEmail() : null,
+                'type' => method_exists($companyInfo, 'getType') ? $companyInfo->getType() : null,
+                'fic_plan_name' => method_exists($companyInfo, 'getFicPlanName') ? $companyInfo->getFicPlanName() : null,
+            ];
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching company info via SDK', [
+                'account_id' => $this->account->id,
+                'company_id' => $this->account->company_id,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch company info from FIC API via SDK (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching company info via SDK', [
+                'account_id' => $this->account->id,
+                'company_id' => $this->account->company_id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Fetch company info using direct HTTP calls (fallback method).
+     */
+    private function fetchCompanyInfoViaHttp(): array
+    {
+        $baseUrl = 'https://api-v2.fattureincloud.it';
+        $companyId = $this->account->company_id;
+        $accessToken = $this->account->access_token;
+
+        $url = "{$baseUrl}/c/{$companyId}/company/info";
+
+        try {
+            $response = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'Authorization' => "Bearer {$accessToken}",
+                    'Accept' => 'application/json',
+                ],
+            ]);
+
+            $statusCode = $response->getStatusCode();
+            $responseData = json_decode($response->getBody()->getContents(), true);
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                throw new \RuntimeException(
+                    "FIC API returned HTTP {$statusCode} when fetching company info: ".
+                    ($responseData['error']['message'] ?? json_encode($responseData)),
+                    $statusCode
+                );
+            }
+
+            return $responseData['data'] ?? $responseData;
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $statusCode = $e->getResponse()?->getStatusCode() ?? 0;
+            $responseBody = $e->getResponse()?->getBody()?->getContents() ?? '';
+
+            Log::error('FIC API: Error fetching company info', [
+                'account_id' => $this->account->id,
+                'company_id' => $this->account->company_id,
+                'status_code' => $statusCode,
+                'response' => $responseBody,
+            ]);
+
+            throw new \RuntimeException(
+                "Failed to fetch company info from FIC API (HTTP {$statusCode})",
+                $statusCode,
+                $e
+            );
+        } catch (\Exception $e) {
+            Log::error('FIC API: Unexpected error fetching company info', [
+                'account_id' => $this->account->id,
+                'company_id' => $this->account->company_id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
      * Extract date from FIC API response data.
      * Checks multiple possible field names where the date might be stored.
      *

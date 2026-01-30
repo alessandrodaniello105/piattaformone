@@ -54,6 +54,8 @@ Route::match(['get', 'post'], '/webhooks/fic/{account_id}/{group}', [FicWebhookC
 Route::prefix('fic')->group(function () {
     Route::post('/initial-sync', [FicSyncController::class, 'initialSync'])
         ->name('fic.initial-sync');
+    Route::post('/refresh-company-info', [FicSyncController::class, 'refreshCompanyInfo'])
+        ->name('fic.refresh-company-info');
     Route::get('/events', [FicSyncController::class, 'events'])
         ->name('fic.events');
     Route::get('/metrics', [FicSyncController::class, 'metrics'])

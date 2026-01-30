@@ -392,6 +392,22 @@ class FicSyncController extends Controller
             // Update last_sync_at timestamp
             $account->update(['last_sync_at' => now()]);
 
+            // Refresh company info from FIC
+            try {
+                $connectionService = app(\App\Services\FicConnectionService::class);
+                $connectionService->refreshCompanyInfo($account, clearCache: false);
+                Log::info('FIC Sync: Company info refreshed during initial sync', [
+                    'account_id' => $account->id,
+                    'company_name' => $account->fresh()->company_name,
+                ]);
+            } catch (\Exception $e) {
+                // Log but don't fail the sync if company info refresh fails
+                Log::warning('FIC Sync: Failed to refresh company info during initial sync', [
+                    'account_id' => $account->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
             // Invalidate all cache after sync for this team
             $this->cacheService->invalidateAll($teamId);
 
@@ -1262,6 +1278,56 @@ class FicSyncController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * Refresh company info from FIC API.
+     *
+     * Fetches the latest company details (name, email, metadata) from FIC
+     * and updates the FicAccount. Useful when company details change in FIC.
+     */
+    public function refreshCompanyInfo(Request $request): JsonResponse
+    {
+        try {
+            $teamId = $request->user()->current_team_id;
+
+            // Get the active FIC account for the current team
+            $account = FicAccount::forTeam($teamId)
+                ->where('status', 'active')
+                ->first();
+
+            if (!$account) {
+                return response()->json([
+                    'error' => 'No active FIC account found for this team.',
+                ], 404);
+            }
+
+            // Use FicConnectionService to refresh company info
+            $connectionService = app(\App\Services\FicConnectionService::class);
+            $companyInfo = $connectionService->refreshCompanyInfo($account);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Company info refreshed successfully',
+                'data' => [
+                    'company_name' => $companyInfo['name'] ?? null,
+                    'company_email' => $companyInfo['email'] ?? null,
+                    'company_type' => $companyInfo['type'] ?? null,
+                    'fic_plan_name' => $companyInfo['fic_plan_name'] ?? null,
+                    'updated_at' => now()->toIso8601String(),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('FIC Sync: Error refreshing company info', [
+                'team_id' => $request->user()->current_team_id ?? null,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to refresh company info: '.$e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
