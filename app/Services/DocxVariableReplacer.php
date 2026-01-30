@@ -42,12 +42,23 @@ class DocxVariableReplacer
             }
         }
 
+        // Extract all variables from the template
+        $allVariables = $this->extractVariables($templatePath);
+
         // Flatten the data structure for variable replacement
         $variables = $this->flattenData($data);
 
         // Replace all variables in the template
-        foreach ($variables as $key => $value) {
-            $templateProcessor->setValue($key, $this->formatValue($value));
+        // For variables with data, use the actual value
+        // For variables without data, use empty string to clear them
+        foreach ($allVariables as $variable) {
+            // Skip action.* variables as they're handled separately via table row cloning
+            if (str_starts_with($variable, 'action.')) {
+                continue;
+            }
+
+            $value = $variables[$variable] ?? '';
+            $templateProcessor->setValue($variable, $this->formatValue($value));
         }
 
         // Save the compiled document
