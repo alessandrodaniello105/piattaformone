@@ -48,6 +48,16 @@ const selectedResources = ref({
 });
 const requiredResourceTypes = ref([]);
 
+// Actions configuration
+const actionStartDate = ref('');
+const actionEndDate = ref('');
+const hasActionVariables = computed(() => {
+    return extractedVariables.value.some(v => v.startsWith('action.'));
+});
+const needsActionsConfig = computed(() => {
+    return hasActionVariables.value && selectedResources.value.client !== null;
+});
+
 // Step 4: Variable mapping
 const variableMapping = ref({}); // Maps variable -> fieldPath
 const variableValues = ref({}); // Maps variable -> actual value
@@ -290,10 +300,20 @@ const compileDocument = async () => {
 
         console.log('Compiling with mapping:', finalMapping);
 
-        const response = await window.axios.post('/api/fic/documents/compile-mapping', {
+        // Prepare request payload
+        const payload = {
             file_token: fileToken.value,
             variable_mapping: finalMapping,
-        }, {
+        };
+
+        // Add action parameters if client is selected and action dates are provided
+        if (selectedResources.value.client && needsActionsConfig.value && actionStartDate.value) {
+            payload.client_id = selectedResources.value.client;
+            payload.action_start_date = actionStartDate.value;
+            payload.action_end_date = actionEndDate.value || null;
+        }
+
+        const response = await window.axios.post('/api/fic/documents/compile-mapping', payload, {
             responseType: 'blob',
         });
 
@@ -345,6 +365,12 @@ const loadResourceForSimpleMapping = async (type, resourceId) => {
             const resourceData = response.data.data.fields;
             autoMapVariables(type, resourceData);
             selectedResources.value[type] = resourceId;
+
+            // Initialize action dates when client is selected
+            if (type === 'client' && hasActionVariables.value) {
+                const today = new Date().toISOString().split('T')[0];
+                actionEndDate.value = today;
+            }
         } else {
             error.value = response.data.error || 'Errore nel caricamento dei dati';
         }
@@ -440,6 +466,8 @@ const reset = () => {
     requiredResourceTypes.value = [];
     showUnmappedModal.value = false;
     unmappedVariables.value = [];
+    actionStartDate.value = '';
+    actionEndDate.value = '';
     if (fileInput.value) {
         fileInput.value.value = '';
     }
@@ -657,6 +685,38 @@ const mappedCount = computed(() => {
                                                 {{ formatResourceDisplay(resource, resourceType) }}
                                             </option>
                                         </select>
+                                    </div>
+                                </div>
+
+                                <!-- Actions Date Configuration -->
+                                <div v-if="needsActionsConfig" class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
+                                    <h4 class="text-md font-medium text-gray-900 mb-3">
+                                        📋 Configura Date per Actions
+                                    </h4>
+                                    <p class="text-sm text-gray-600 mb-4">
+                                        Il template contiene variabili per le actions. Seleziona il range di date per filtrare le actions del cliente.
+                                    </p>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                                Data Inizio
+                                            </label>
+                                            <input
+                                                type="date"
+                                                v-model="actionStartDate"
+                                                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                                Data Fine (default: oggi)
+                                            </label>
+                                            <input
+                                                type="date"
+                                                v-model="actionEndDate"
+                                                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                             </div>

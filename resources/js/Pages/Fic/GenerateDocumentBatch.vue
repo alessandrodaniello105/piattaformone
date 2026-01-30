@@ -9,7 +9,7 @@ import { router } from '@inertiajs/vue3';
 
 // Step management
 const currentStep = ref(1);
-const totalSteps = 4;
+const totalSteps = 5;
 
 // File upload
 const fileUploadRef = ref(null);
@@ -44,6 +44,9 @@ const selectedResources = ref({
 });
 
 const requiredResourceTypes = ref([]);
+
+// Actions configuration (Step 3)
+const actionsConfig = ref({}); // { clientId: { start: '2026-01-01', end: '2026-01-30' } }
 
 // Manual mapping state (if simpleMapping is false)
 const currentMappingResourceIndex = ref(0);
@@ -127,6 +130,16 @@ const detectRequiredResources = () => {
     return Array.from(types);
 };
 
+// Check if template has action.* variables
+const hasActionVariables = computed(() => {
+    return extractedVariables.value.some(v => v.startsWith('action.'));
+});
+
+// Check if we need to show actions configuration step
+const needsActionsConfig = computed(() => {
+    return hasActionVariables.value && selectedResources.value.client.length > 0;
+});
+
 // Fetch resources
 const fetchResources = async (type) => {
     if (resources.value[type].length > 0) {
@@ -175,6 +188,63 @@ const hasSelectedResources = computed(() => {
     return requiredResourceTypes.value.some(type => selectedResources.value[type].length > 0);
 });
 
+// Proceed from Step 2 to next step
+const proceedFromResourceSelection = () => {
+    if (!hasSelectedResources.value) {
+        error.value = 'Seleziona almeno una risorsa per procedere.';
+        return;
+    }
+
+    // If we need actions config, go to step 3
+    if (needsActionsConfig.value) {
+        initializeActionsConfig();
+        currentStep.value = 3;
+    } else if (simpleMapping.value) {
+        // Simple mapping: skip to compilation
+        compileBatchDocuments();
+    } else {
+        // Manual mapping: go to step 4
+        proceedToManualMapping();
+    }
+};
+
+// Initialize actions config for selected clients
+const initializeActionsConfig = () => {
+    actionsConfig.value = {};
+    const today = new Date().toISOString().split('T')[0];
+
+    selectedResources.value.client.forEach(clientId => {
+        if (!actionsConfig.value[clientId]) {
+            actionsConfig.value[clientId] = {
+                start: '', // Empty by default
+                end: today,
+            };
+        }
+    });
+};
+
+// Apply same dates to all clients
+const applyDatesToAll = () => {
+    const firstClientId = selectedResources.value.client[0];
+    if (!firstClientId || !actionsConfig.value[firstClientId]) return;
+
+    const { start, end } = actionsConfig.value[firstClientId];
+    selectedResources.value.client.forEach(clientId => {
+        actionsConfig.value[clientId] = { start, end };
+    });
+};
+
+// Proceed from actions config step
+const proceedFromActionsConfig = () => {
+    if (simpleMapping.value) {
+        // Simple mapping: compile
+        compileBatchDocuments();
+    } else {
+        // Manual mapping: go to step 4
+        proceedToManualMapping();
+    }
+};
+
 // Proceed to compile (simple mapping)
 const proceedToCompileSimple = async () => {
     if (!hasSelectedResources.value) {
@@ -206,7 +276,7 @@ const proceedToManualMapping = () => {
     });
 
     currentMappingResourceIndex.value = 0;
-    currentStep.value = 3;
+    currentStep.value = 4; // Step 4 is manual mapping now
 };
 
 // Compile batch documents
@@ -219,10 +289,21 @@ const compileBatchDocuments = async () => {
         const batchResources = [];
         requiredResourceTypes.value.forEach(type => {
             selectedResources.value[type].forEach(resourceId => {
-                batchResources.push({
+                const resource = {
                     type: type,
                     id: resourceId,
-                });
+                };
+
+                // Add actions config if this is a client and we have actions config
+                if (type === 'client' && actionsConfig.value[resourceId]) {
+                    const config = actionsConfig.value[resourceId];
+                    if (config.start || config.end) {
+                        resource.action_start_date = config.start;
+                        resource.action_end_date = config.end;
+                    }
+                }
+
+                batchResources.push(resource);
             });
         });
 
@@ -246,7 +327,7 @@ const compileBatchDocuments = async () => {
         window.URL.revokeObjectURL(url);
 
         success.value = `Documenti compilati con successo! (${batchResources.length} file)`;
-        currentStep.value = 4;
+        currentStep.value = 5; // Step 5 is completion now
     } catch (err) {
         console.error('Error compiling batch documents:', err);
         if (err.response?.data) {
@@ -312,11 +393,18 @@ const reset = () => {
         invoice: [],
     };
     requiredResourceTypes.value = [];
+    actionsConfig.value = {};
     resourceMappings.value = [];
     currentMappingResourceIndex.value = 0;
     if (fileUploadRef.value) {
         fileUploadRef.value.resetFile();
     }
+};
+
+// Get client name by ID
+const getClientName = (clientId) => {
+    const client = resources.value.clients.find(c => c.id === clientId);
+    return client ? (client.name || 'N/A') : 'N/A';
 };
 </script>
 
@@ -356,7 +444,13 @@ const reset = () => {
                                             currentStep >= step ? 'text-indigo-600' : 'text-gray-500'
                                         ]"
                                     >
-                                        {{ step === 1 ? 'Carica File' : step === 2 ? 'Seleziona Risorse' : step === 3 ? 'Mappa Dati' : 'Compila' }}
+                                        {{
+                                            step === 1 ? 'Carica File' :
+                                            step === 2 ? 'Seleziona Risorse' :
+                                            step === 3 ? 'Configura Actions' :
+                                            step === 4 ? 'Mappa Dati' :
+                                            'Compila'
+                                        }}
                                     </p>
                                 </div>
                             </div>
@@ -492,31 +586,98 @@ const reset = () => {
                         <div class="flex gap-4">
                             <SecondaryButton @click="prevStep">Indietro</SecondaryButton>
 
-                            <!-- Simple mapping: compile directly -->
                             <PrimaryButton
-                                v-if="simpleMapping"
-                                @click="proceedToCompileSimple"
-                                :disabled="!hasSelectedResources || compiling"
-                            >
-                                <span v-if="compiling">Compilazione...</span>
-                                <span v-else>Compila e Scarica ZIP</span>
-                            </PrimaryButton>
-
-                            <!-- Manual mapping: go to step 3 -->
-                            <PrimaryButton
-                                v-else
-                                @click="proceedToManualMapping"
+                                @click="proceedFromResourceSelection"
                                 :disabled="!hasSelectedResources"
                             >
-                                Avanti a Mappatura Manuale
+                                {{ needsActionsConfig ? 'Avanti a Configurazione Actions' : simpleMapping ? 'Compila e Scarica ZIP' : 'Avanti a Mappatura Manuale' }}
                             </PrimaryButton>
                         </div>
                     </div>
 
-                    <!-- Step 3: Manual Mapping (TODO: implement iteration) -->
+                    <!-- Step 3: Actions Configuration -->
                     <div v-if="currentStep === 3" class="p-6">
                         <h3 class="text-lg font-medium text-gray-900 mb-4">
-                            Step 3: Mappatura Manuale
+                            Step 3: Configurazione Actions
+                        </h3>
+
+                        <div v-if="!needsActionsConfig" class="p-4 bg-yellow-50 border border-yellow-200 rounded-md">
+                            <p class="text-sm text-yellow-800">
+                                Questo step non è necessario (nessun client selezionato o template senza variabili action).
+                            </p>
+                        </div>
+
+                        <div v-else>
+                            <p class="text-sm text-gray-600 mb-6">
+                                Configura il range di date per le actions di ogni cliente. Le actions con data nel range specificato verranno incluse nel documento.
+                            </p>
+
+                            <!-- Global date setter -->
+                            <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
+                                <h4 class="text-sm font-medium text-gray-900 mb-3">⚡ Applica stesse date a tutti</h4>
+                                <p class="text-xs text-gray-600 mb-3">
+                                    Configura le date per il primo client e clicca il pulsante per applicarle a tutti i clienti selezionati.
+                                </p>
+                                <PrimaryButton @click="applyDatesToAll" size="sm">
+                                    Applica Date a Tutti i Clienti
+                                </PrimaryButton>
+                            </div>
+
+                            <!-- Actions config for each client -->
+                            <div class="space-y-4">
+                                <div
+                                    v-for="clientId in selectedResources.client"
+                                    :key="clientId"
+                                    class="border border-gray-200 rounded-lg p-4"
+                                >
+                                    <h5 class="text-sm font-medium text-gray-900 mb-3">
+                                        📋 {{ getClientName(clientId) }}
+                                    </h5>
+
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">
+                                                Data Inizio (Da)
+                                            </label>
+                                            <input
+                                                type="date"
+                                                v-model="actionsConfig[clientId].start"
+                                                class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">
+                                                Data Fine (A)
+                                            </label>
+                                            <input
+                                                type="date"
+                                                v-model="actionsConfig[clientId].end"
+                                                class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            />
+                                            <p class="mt-1 text-xs text-gray-500">Default: oggi</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 flex gap-4">
+                            <SecondaryButton @click="prevStep">Indietro</SecondaryButton>
+                            <PrimaryButton
+                                @click="proceedFromActionsConfig"
+                                :disabled="compiling"
+                            >
+                                <span v-if="compiling">Compilazione...</span>
+                                <span v-else>{{ simpleMapping ? 'Compila e Scarica ZIP' : 'Avanti a Mappatura Manuale' }}</span>
+                            </PrimaryButton>
+                        </div>
+                    </div>
+
+                    <!-- Step 4: Manual Mapping (TODO: implement iteration) -->
+                    <div v-if="currentStep === 4" class="p-6">
+                        <h3 class="text-lg font-medium text-gray-900 mb-4">
+                            Step 4: Mappatura Manuale
                         </h3>
                         <p class="text-sm text-gray-600">
                             Funzionalità in sviluppo: mappatura manuale per ogni risorsa
@@ -526,8 +687,8 @@ const reset = () => {
                         </div>
                     </div>
 
-                    <!-- Step 4: Success -->
-                    <div v-if="currentStep === 4" class="p-6 text-center">
+                    <!-- Step 5: Success -->
+                    <div v-if="currentStep === 5" class="p-6 text-center">
                         <div class="mb-4">
                             <svg class="mx-auto h-12 w-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>

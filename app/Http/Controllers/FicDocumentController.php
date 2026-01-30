@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Action;
 use App\Models\FicAccount;
 use App\Models\FicClient;
 use App\Models\FicInvoice;
@@ -141,6 +142,8 @@ class FicDocumentController extends Controller
                 'resources' => 'required|array|min:1',
                 'resources.*.type' => 'required|string|in:invoice,client,quote,supplier',
                 'resources.*.id' => 'required|integer',
+                'resources.*.action_start_date' => 'nullable|date',
+                'resources.*.action_end_date' => 'nullable|date|after_or_equal:resources.*.action_start_date',
             ]);
         } catch (ValidationException $e) {
             return response()->json([
@@ -175,6 +178,21 @@ class FicDocumentController extends Controller
                     continue;
                 }
 
+                // Prepare data for replacement
+                $replacementData = [$resource['type'] => $data];
+
+                // Fetch actions if this is a client and date range is provided
+                if ($resource['type'] === 'client' && isset($resource['action_start_date'])) {
+                    $actions = $this->getActionsForClient(
+                        $data->id,
+                        $resource['action_start_date'],
+                        $resource['action_end_date'] ?? null
+                    );
+
+                    // Add actions to replacement data
+                    $replacementData['actions'] = $actions;
+                }
+
                 // Create a temporary copy of the template for this resource
                 $resourceTempPath = 'temp/'.uniqid().'_'.$resource['type'].'_'.$resource['id'].'.docx';
                 Storage::disk('local')->copy($tempPath, $resourceTempPath);
@@ -183,7 +201,7 @@ class FicDocumentController extends Controller
                 // Compile this document
                 $compiledPath = $replacer->replaceVariables(
                     $resourceFullPath,
-                    [$resource['type'] => $data]
+                    $replacementData
                 );
 
                 $compiledFiles[] = [
@@ -252,6 +270,9 @@ class FicDocumentController extends Controller
                 'file_token' => 'required|string',
                 'variable_mapping' => 'required|array',
                 'variable_mapping.*' => 'nullable|string',
+                'client_id' => 'nullable|integer',
+                'action_start_date' => 'nullable|date',
+                'action_end_date' => 'nullable|date|after_or_equal:action_start_date',
             ]);
         } catch (ValidationException $e) {
             return response()->json([
@@ -274,11 +295,31 @@ class FicDocumentController extends Controller
                 ], 404);
             }
 
+            // Prepare data for replacement
+            $replacementData = [];
+
+            // Fetch actions if client is specified with date range
+            if (isset($validated['client_id']) && isset($validated['action_start_date'])) {
+                $clientData = $this->getFicData($request, 'client', $validated['client_id']);
+
+                if ($clientData) {
+                    $actions = $this->getActionsForClient(
+                        $clientData->id,
+                        $validated['action_start_date'],
+                        $validated['action_end_date'] ?? null
+                    );
+
+                    // Add actions to replacement data
+                    $replacementData['actions'] = $actions;
+                }
+            }
+
             // Replace variables using mapping
             $replacer = new DocxVariableReplacer;
             $compiledPath = $replacer->replaceVariablesWithMapping(
                 $fullTempPath,
-                $validated['variable_mapping']
+                $validated['variable_mapping'],
+                $replacementData
             );
 
             // Clean up the uploaded template file
@@ -306,6 +347,8 @@ class FicDocumentController extends Controller
                 'file' => 'required|file|mimes:docx|max:10240',
                 'data_type' => 'required|string|in:invoice,client,quote,supplier',
                 'data_id' => 'required|integer',
+                'action_start_date' => 'nullable|date',
+                'action_end_date' => 'nullable|date|after_or_equal:action_start_date',
             ]);
         } catch (ValidationException $e) {
             return response()->json([
@@ -324,6 +367,21 @@ class FicDocumentController extends Controller
                     'success' => false,
                     'error' => 'FIC data not found',
                 ], 404);
+            }
+
+            // Prepare data for replacement
+            $replacementData = [$validated['data_type'] => $data];
+
+            // Fetch actions if this is a client and date range is provided
+            if ($validated['data_type'] === 'client' && isset($validated['action_start_date'])) {
+                $actions = $this->getActionsForClient(
+                    $data->id,
+                    $validated['action_start_date'],
+                    $validated['action_end_date'] ?? null
+                );
+
+                // Add actions to replacement data
+                $replacementData['actions'] = $actions;
             }
 
             // Store the uploaded file temporarily
@@ -347,7 +405,7 @@ class FicDocumentController extends Controller
             $replacer = new DocxVariableReplacer;
             $compiledPath = $replacer->replaceVariables(
                 $fullTempPath,
-                [$validated['data_type'] => $data]
+                $replacementData
             );
 
             // Clean up the uploaded file
@@ -389,6 +447,24 @@ class FicDocumentController extends Controller
             'supplier' => FicSupplier::where('fic_account_id', $account->id)->where('id', $id)->first(),
             default => null,
         };
+    }
+
+    /**
+     * Get actions for a client within a date range.
+     *
+     * @param  int  $clientId  The FIC client ID
+     * @param  string|null  $startDate  Start date (inclusive)
+     * @param  string|null  $endDate  End date (inclusive, defaults to now)
+     * @return \Illuminate\Support\Collection
+     */
+    private function getActionsForClient(int $clientId, ?string $startDate = null, ?string $endDate = null)
+    {
+        $endDate = $endDate ?? now()->toDateString();
+
+        return Action::forClient($clientId)
+            ->inDateRange($startDate, $endDate)
+            ->orderBy('created_at', 'asc')
+            ->get();
     }
 
     /**

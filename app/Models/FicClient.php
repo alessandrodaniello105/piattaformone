@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class FicClient extends Model
 {
@@ -55,6 +56,16 @@ class FicClient extends Model
     public function ficAccount(): BelongsTo
     {
         return $this->belongsTo(FicAccount::class, 'fic_account_id');
+    }
+
+    /**
+     * Get the actions for this client.
+     *
+     * @return HasMany<Action>
+     */
+    public function actions(): HasMany
+    {
+        return $this->hasMany(Action::class, 'fic_client_id');
     }
 
     /**

@@ -11,7 +11,7 @@ class DocxVariableReplacer
      * Replace variables in a DOCX template with FIC data.
      *
      * @param  string  $templatePath  Path to the DOCX template file
-     * @param  array  $data  Array of FIC data (invoice, client, quote, supplier)
+     * @param  array  $data  Array of FIC data (invoice, client, quote, supplier, actions)
      * @return string Path to the compiled DOCX file
      */
     public function replaceVariables(string $templatePath, array $data): string
@@ -22,6 +22,25 @@ class DocxVariableReplacer
         }
 
         $templateProcessor = new TemplateProcessor($templatePath);
+
+        // Handle actions table rows if actions data is provided
+        if (isset($data['actions']) && !empty($data['actions'])) {
+            $actions = $data['actions'];
+
+            // Clone the table row for each action
+            $templateProcessor->cloneRow('action.category', count($actions));
+
+            // Replace values for each action row
+            foreach ($actions as $index => $action) {
+                $rowNum = $index + 1;
+
+                $templateProcessor->setValue("action.category#{$rowNum}", $this->formatValue($action->category));
+                $templateProcessor->setValue("action.name#{$rowNum}", $this->formatValue($action->name));
+                $templateProcessor->setValue("action.description#{$rowNum}", $this->formatValue($action->description));
+                $templateProcessor->setValue("action.gross#{$rowNum}", $this->formatValue($action->gross ? '€ ' . number_format($action->gross, 2, ',', '.') : ''));
+                $templateProcessor->setValue("action.created_at#{$rowNum}", $this->formatValue($action->created_at ? $action->created_at->format('d/m/Y') : ''));
+            }
+        }
 
         // Flatten the data structure for variable replacement
         $variables = $this->flattenData($data);
@@ -271,9 +290,10 @@ class DocxVariableReplacer
      *
      * @param  string  $templatePath  Path to the DOCX template file
      * @param  array  $variableMapping  Array mapping variable names to values ['variable' => 'value']
+     * @param  array  $additionalData  Additional data like actions for table rows
      * @return string Path to the compiled DOCX file
      */
-    public function replaceVariablesWithMapping(string $templatePath, array $variableMapping): string
+    public function replaceVariablesWithMapping(string $templatePath, array $variableMapping, array $additionalData = []): string
     {
         // Ensure the template file exists and is readable
         if (! file_exists($templatePath) || ! is_readable($templatePath)) {
@@ -281,6 +301,25 @@ class DocxVariableReplacer
         }
 
         $templateProcessor = new TemplateProcessor($templatePath);
+
+        // Handle actions table rows if actions data is provided
+        if (isset($additionalData['actions']) && !empty($additionalData['actions'])) {
+            $actions = $additionalData['actions'];
+
+            // Clone the table row for each action
+            $templateProcessor->cloneRow('action.category', count($actions));
+
+            // Replace values for each action row
+            foreach ($actions as $index => $action) {
+                $rowNum = $index + 1;
+
+                $templateProcessor->setValue("action.category#{$rowNum}", $this->formatValue($action->category));
+                $templateProcessor->setValue("action.name#{$rowNum}", $this->formatValue($action->name));
+                $templateProcessor->setValue("action.description#{$rowNum}", $this->formatValue($action->description));
+                $templateProcessor->setValue("action.gross#{$rowNum}", $this->formatValue($action->gross ? '€ ' . number_format($action->gross, 2, ',', '.') : ''));
+                $templateProcessor->setValue("action.created_at#{$rowNum}", $this->formatValue($action->created_at ? $action->created_at->format('d/m/Y') : ''));
+            }
+        }
 
         // Replace all variables in the template
         foreach ($variableMapping as $variable => $value) {
